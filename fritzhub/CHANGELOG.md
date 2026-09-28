@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.2
+
+- Weboberflächen: HTTP- und HTTPS-Variante desselben Servers (80/443, 8080/8443, 5000/5001) werden auch ohne Seitentitel nur einmal angezeigt
+- Buttons zur Weboberfläche zeigen zusätzlich die Adresse
+
 ## 1.8.1
 
 - Anbindung per LAN zeigt die tatsächliche Geschwindigkeit („LAN · 1 Gbit/s“) und warnt, wenn ein Repeater bzw. eine Mesh-Box mit weniger als 1 Gbit/s verbunden ist – mit Hinweis auf typische Ursachen (Kabel, Switch, Green Mode); in Übersicht, System und Topologie

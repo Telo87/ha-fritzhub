@@ -16,11 +16,29 @@ def test_url_default_ports():
 
 def test_dedupe_same_interface_http_https():
     entries = [
-        {"url": "http://x/", "title": "FRITZ!Box"},
-        {"url": "https://x/", "title": "FRITZ!Box"},
-        {"url": "http://x:8080/", "title": None},
+        {"url": "http://x/", "port": 80, "title": "FRITZ!Box"},
+        {"url": "https://x/", "port": 443, "title": "FRITZ!Box"},
+        {"url": "http://x:8080/", "port": 8080, "title": None},
     ]
     assert [e["url"] for e in _dedupe(entries)] == ["http://x/", "http://x:8080/"]
+
+
+def test_dedupe_twins_without_title():
+    entries = [
+        {"url": "http://x/", "port": 80, "title": None},
+        {"url": "https://x/", "port": 443, "title": None},
+        {"url": "http://x:8123/", "port": 8123, "title": None},
+    ]
+    # 80/443 without title are the same server; 8123 is a different interface
+    assert [e["url"] for e in _dedupe(entries)] == ["http://x/", "http://x:8123/"]
+
+
+def test_dedupe_keeps_different_interfaces_on_twin_ports():
+    entries = [
+        {"url": "http://x:5000/", "port": 5000, "title": "DSM"},
+        {"url": "https://x:5001/", "port": 5001, "title": "Admin"},
+    ]
+    assert len(_dedupe(entries)) == 2
 
 
 async def _serve(handler):

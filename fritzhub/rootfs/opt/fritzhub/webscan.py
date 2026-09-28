@@ -68,15 +68,28 @@ async def _probe(session: aiohttp.ClientSession, ip: str, port: int, scheme: str
     return {"url": url, "port": port, "scheme": scheme, "title": title, "login": login}
 
 
+# HTTPS port -> matching HTTP port of the same web server
+_TWINS = {443: 80, 8443: 8080, 5001: 5000}
+
+
 def _dedupe(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The same interface on HTTP and HTTPS (same title) is listed once."""
-    seen: set[str] = set()
+    """List every web interface once.
+
+    The HTTPS twin of an HTTP port (443/80, 8443/8080, 5001/5000) is dropped
+    when both answer alike – also when the page has no title. Otherwise
+    interfaces with the same title count as one.
+    """
+    by_port = {e["port"]: e for e in entries}
+    seen_titles: set[str] = set()
     result = []
     for e in entries:
-        key = e["title"] or e["url"]
-        if key in seen:
+        twin = by_port.get(_TWINS.get(e["port"], -1))
+        if twin is not None and twin["title"] == e["title"]:
             continue
-        seen.add(key)
+        if e["title"]:
+            if e["title"] in seen_titles:
+                continue
+            seen_titles.add(e["title"])
         result.append(e)
     return result
 

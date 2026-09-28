@@ -318,7 +318,8 @@
     }).join('');
   }
   function webButtons(web) {
-    return (web || []).map((w) => `<a class="btn sm" style="margin-top:10px;width:100%" href="${esc(w.url)}" target="_blank" rel="noopener noreferrer">${ic('globe')}${esc(w.title || 'Weboberfläche')}<span class="faint" style="font-weight:400">${w.port === 80 || w.port === 443 ? '' : ` :${w.port}`}</span></a>`).join('');
+    // title plus the address, so several interfaces of one device can be told apart
+    return (web || []).map((w) => `<a class="btn sm" style="margin-top:10px;width:100%" href="${esc(w.url)}" target="_blank" rel="noopener noreferrer">${ic('globe')}${esc(w.title || 'Weboberfläche')}<span class="faint" style="font-weight:400">${esc(w.url.replace(/^https?:\/\//, '').replace(/\/$/, ''))}${w.scheme === 'https' ? ' · HTTPS' : ''}</span></a>`).join('');
   }
 
   // detected for the first time within the last 7 days (not part of the initial inventory)
