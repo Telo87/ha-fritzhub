@@ -122,3 +122,5 @@ fritzhub/                  Add-on (config.yaml, Dockerfile, Doku)
 ## Lizenz
 
 [MIT](LICENSE)
+
+Einige Icons basieren auf [Lucide](https://lucide.dev) (ISC-Lizenz).
