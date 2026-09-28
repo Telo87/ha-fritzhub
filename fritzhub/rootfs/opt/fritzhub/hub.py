@@ -13,6 +13,7 @@ from .box import BoxError, FritzBox
 from .config import BoxStore, Options
 from .ha import SensorPublisher
 from .nas import FritzNas
+from .oui import vendors
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,6 +80,8 @@ class Hub:
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._poll_loop())
+        # load the vendor database (~50k entries) off the event loop
+        asyncio.get_running_loop().run_in_executor(None, lambda: vendors.blocks)
 
     async def stop(self) -> None:
         if self._task:
@@ -439,6 +442,7 @@ class Hub:
             self._enrich_from_mesh(hosts, mesh)
         # signal strength as reported by the access point the device is connected to
         for h in hosts:
+            h.update(vendors.lookup(h["mac"]) or {})
             client = self.wlan_clients.get(h["mac"])
             if client and h["active"]:
                 h["signal"] = client["signal"]
@@ -506,6 +510,7 @@ class Hub:
                     "mac": mac,
                     "name": host.get("name") or c["ip"] or mac,
                     "model": host.get("model"),
+                    "vendor": (vendors.lookup(mac) or {}).get("vendor"),
                     "ip": c["ip"] or host.get("ip"),
                     "signal": c["signal"],
                     "speed": c["speed"],
@@ -534,6 +539,15 @@ class Hub:
                 node["active"] = host["active"]
                 node["interface"] = host["interface"]
             node["box_id"] = configured.get(node.get("ip") or "")
+            if not node["infrastructure"]:
+                client = next((self.wlan_clients[m] for m in node["macs"] if m in self.wlan_clients), None)
+                if client:
+                    node["signal"] = client["signal"]
+                    node["wlan_speed"] = client["speed"]
+                    node["ap"] = client["ap"]
+                vendor = vendors.lookup(node["mac"]) or {}
+                node["vendor"] = vendor.get("vendor")
+                node["private"] = vendor.get("private", False)
             nodes.append(node)
         # the box delivering the topology is the master – its IP is not in the host list
         for node in nodes:

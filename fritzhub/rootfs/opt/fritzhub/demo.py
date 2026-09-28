@@ -51,9 +51,26 @@ CLIENTS = [
 OFFLINE = ["Laptop-Gast", "Kindle", "Nintendo-Switch", "Alter-Router"]
 
 
+# realistic vendor prefixes for the demo clients (index in CLIENTS -> OUI);
+# phones/tablets without entry use randomized "private" addresses like in reality
+DEMO_OUI = {
+    1: "3C:28:6D", 2: "F0:18:98", 4: "B8:27:EB", 5: "00:11:32", 6: "A8:23:FE",
+    7: "00:D9:D1", 8: "48:A6:B8", 9: "F0:81:73", 10: "E8:DB:84", 11: "A4:CF:12", 12: "80:7D:3A",
+    14: "3C:2A:F4", 16: "00:17:88",
+}
+
+
 def _mac(seed: int) -> str:
     rnd = random.Random(seed)
-    return ":".join(f"{rnd.randint(0, 255):02X}" for _ in range(6))
+    tail = [f"{rnd.randint(0, 255):02X}" for _ in range(6)]
+    prefix = DEMO_OUI.get(seed)
+    if prefix:
+        return prefix + ":" + ":".join(tail[3:])
+    if seed < len(CLIENTS):
+        tail[0] = f"{(int(tail[0], 16) & 0xFC) | 0x02:02X}"  # locally administered = private MAC
+    else:
+        tail[0] = f"{int(tail[0], 16) & 0xFC:02X}"
+    return ":".join(tail)
 
 
 class DemoBox(FritzBox):

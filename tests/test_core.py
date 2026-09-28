@@ -194,3 +194,40 @@ def test_signal_percent(raw, expected):
     from fritzhub.box import signal_percent
 
     assert signal_percent(raw) == expected
+
+
+MANUF_SAMPLE = """# comment
+3C:A6:2F\tAVMAudiovisu\tAVM Audiovisuelles Marketing und Computersysteme GmbH
+00:17:88\tPhilipsLight\tPhilips Lighting BV
+A4:CF:12\tEspressif\tEspressif Inc.
+00:1B:C5:00:10:00/36\tOpenRBcomDir\tOpenRB.com, Direct SIA
+00:1B:C5\tIEEERegistr\tIEEE Registration Authority
+"""
+
+
+def test_vendor_lookup(tmp_path):
+    import gzip
+
+    from fritzhub.oui import VendorDB
+
+    path = tmp_path / "manuf.gz"
+    with gzip.open(path, "wt", encoding="utf-8") as fh:
+        fh.write(MANUF_SAMPLE)
+    db = VendorDB(path)
+    assert db.lookup("3c:a6:2f:11:22:33")["vendor"] == "AVM"
+    assert db.lookup("A4-CF-12-00-00-01")["vendor"] == "Espressif"
+    assert db.lookup("00:17:88:01:02:03")["vendor"] == "Philips Lighting"
+    # the more specific /36 block wins over the /24 registry block
+    assert db.lookup("00:1B:C5:00:10:FF")["vendor"] == "OpenRB.com"
+    assert db.lookup("00:1B:C5:FF:00:00")["vendor"] == "IEEE Registration Authority"
+    # locally administered (randomized) address
+    assert db.lookup("DA:A1:19:00:00:01") == {"vendor": None, "vendor_full": None, "private": True}
+    assert db.lookup("12:34:56:78:9A:BC")["private"] is True
+    assert db.lookup("00:00:00:00:00:01")["vendor"] is None
+    assert db.lookup("invalid") is None
+
+
+def test_vendor_db_missing_file(tmp_path):
+    from fritzhub.oui import VendorDB
+
+    assert VendorDB(tmp_path / "missing.gz").lookup("3C:A6:2F:11:22:33")["vendor"] is None

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0
+
+- Neu: Hersteller-Erkennung anhand der MAC-Adresse (Spalte „Hersteller“ in der Geräteliste, durchsuchbar); zufällige/private MAC-Adressen werden als solche gekennzeichnet
+- Mesh-Topologie übersichtlicher: kompakte Ansicht mit Geräte-Zusammenfassung je Box/Repeater; Klick zeigt die verbundenen Geräte nach Band gruppiert mit Signalstärke
+- Volle Karte („Alle Endgeräte in der Karte“) nach Verbindungsart gruppiert und nach Signalqualität eingefärbt
+
 ## 1.1.0
 
 - Neu: Signalstärke aller WLAN-Geräte – abgefragt bei der Box bzw. dem Repeater, mit dem das Gerät verbunden ist

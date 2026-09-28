@@ -12,6 +12,13 @@ RUN apk add --no-cache --virtual .build-deps gcc musl-dev \
     && apk del .build-deps \
     && rm /tmp/requirements.txt
 
+# Herstellerliste für die MAC-Adressen-Erkennung (Wireshark "manuf", IEEE-Daten).
+# Einmal beim Bauen laden – schlägt der Download fehl, fehlt nur die Herstelleranzeige.
+RUN mkdir -p /usr/share/fritzhub \
+    && (curl -fsSL --retry 3 -m 120 -o /usr/share/fritzhub/manuf.gz \
+        "https://www.wireshark.org/download/automated/data/manuf.gz" \
+        || echo "WARNUNG: Herstellerliste konnte nicht geladen werden")
+
 # Anwendung + s6-Service
 COPY rootfs /
 RUN chmod a+x /etc/services.d/fritzhub/run /etc/services.d/fritzhub/finish

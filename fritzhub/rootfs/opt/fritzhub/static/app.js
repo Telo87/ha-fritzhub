@@ -220,7 +220,7 @@
   const loading = (rows = 4) => `<div class="card"><div class="card-body">${Array.from({ length: rows }, () => '<div class="skeleton" style="height:18px;margin:10px 0"></div>').join('')}</div></div>`;
 
   function deviceIcon(h) {
-    const n = `${h.name || ''} ${h.model || ''}`.toLowerCase();
+    const n = `${h.name || ''} ${h.model || ''} ${h.vendor || ''}`.toLowerCase();
     if (/fritz.*(repeater|box|powerline)|repeater|router|mesh/.test(n)) return 'repeater';
     if (/iphone|android|galaxy|pixel|handy|phone|redmi|xiaomi|oneplus|huawei|nokia|moto/.test(n)) return 'smartphone';
     if (/ipad|tab|kindle/.test(n)) return 'smartphone';
@@ -564,6 +564,7 @@
       ip: (a, b) => ipNum(a.ip) - ipNum(b.ip),
       conn: (a, b) => (a.connected_to || '').localeCompare(b.connected_to || ''),
       speed: (a, b) => (a.link_rate || a.speed * 1000 || 0) - (b.link_rate || b.speed * 1000 || 0),
+      vendor: (a, b) => (a.vendor || (a.private ? '~' : '~~')).localeCompare(b.vendor || (b.private ? '~' : '~~'), 'de', { sensitivity: 'base' }),
       signal: (a, b) => (a.active && a.signal != null ? a.signal : 999) - (b.active && b.signal != null ? b.signal : 999),
     };
 
@@ -571,7 +572,7 @@
       if (stale(token)) return;
       const hosts = S.hosts || [];
       const q = f.q.trim().toLowerCase();
-      let list = hosts.filter(kinds[f.kind][1]).filter((h) => !q || [h.name, h.ip, h.mac, h.model, h.connected_to].some((v) => (v || '').toLowerCase().includes(q)));
+      let list = hosts.filter(kinds[f.kind][1]).filter((h) => !q || [h.name, h.ip, h.mac, h.model, h.vendor, h.connected_to].some((v) => (v || '').toLowerCase().includes(q)));
       list = list.sort((a, b) => (b.active - a.active) || sorters[f.sort](a, b) * f.dir);
       const counts = Object.fromEntries(Object.entries(kinds).map(([k, v]) => [k, hosts.filter(v[1]).length]));
       const th = (key, label, cls = '') => `<th data-sort="${key}" class="${cls}">${label}${f.sort === key ? `<span class="sort">${f.dir > 0 ? '▲' : '▼'}</span>` : ''}</th>`;
@@ -588,6 +589,9 @@
             <div class="faint" style="font-size:12px">${h.active ? '<span class="dot ok" style="width:6px;height:6px;box-shadow:none;margin-right:5px;vertical-align:1px"></span>Online' : 'Offline'}${h.model ? ` · ${esc(h.model)}` : ''}</div></div></div></td>
           <td class="mono nowrap">${esc(h.ip || '–')}</td>
           <td class="mono nowrap hide-md">${esc(h.mac || '–')}</td>
+          <td class="hide-sm vendor-cell">${h.private
+            ? '<span class="badge" title="Das Gerät verwendet eine zufällige (private) MAC-Adresse – typisch für Smartphones, Tablets und Laptops. Ein Hersteller lässt sich daraus nicht ermitteln.">Private MAC</span>'
+            : h.vendor ? `<span title="${esc(h.vendor_full || h.vendor)}">${esc(h.vendor)}</span>` : '<span class="faint">Unbekannt</span>'}</td>
           <td>${conn}</td>
           <td class="nowrap">${h.active && h.signal != null ? `<div class="row" style="gap:6px">${signalBars(h.signal)}</div>` : '<span class="faint">–</span>'}</td>
           <td class="nowrap num hide-sm">${rate}</td>
@@ -596,12 +600,12 @@
         </tr>`;
       }).join('');
       el.innerHTML = `<div class="toolbar">
-          <div class="input-icon search">${ic('search')}<input class="input" id="q" placeholder="Name, IP, MAC suchen …" value="${esc(f.q)}"></div>
+          <div class="input-icon search">${ic('search')}<input class="input" id="q" placeholder="Name, IP, MAC, Hersteller …" value="${esc(f.q)}"></div>
           <div class="seg" id="kinds">${Object.entries(kinds).filter(([k]) => counts[k] || k === 'all' || k === 'online').map(([k, v]) => `<button data-kind="${k}" class="${f.kind === k ? 'active' : ''}">${v[0]} <span class="n">${counts[k]}</span></button>`).join('')}</div>
         </div>
         <div class="card"><div class="table-wrap"><table class="table">
-          <thead><tr>${th('name', 'Gerät')}${th('ip', 'IP-Adresse')}<th class="hide-md" style="cursor:default">MAC</th>${th('conn', 'Verbunden über')}${th('signal', 'Signal')}${th('speed', 'Rate', 'hide-sm')}<th style="cursor:default">Internet</th><th></th></tr></thead>
-          <tbody>${rows || `<tr><td colspan="8">${empty('search', 'Keine Geräte gefunden', 'Passe Suche oder Filter an.')}</td></tr>`}</tbody>
+          <thead><tr>${th('name', 'Gerät')}${th('ip', 'IP-Adresse')}<th class="hide-md" style="cursor:default">MAC</th>${th('vendor', 'Hersteller', 'hide-sm')}${th('conn', 'Verbunden über')}${th('signal', 'Signal')}${th('speed', 'Rate', 'hide-sm')}<th style="cursor:default">Internet</th><th></th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="9">${empty('search', 'Keine Geräte gefunden', 'Passe Suche oder Filter an.')}</td></tr>`}</tbody>
         </table></div></div>`;
       const qi = $('#q');
       qi.addEventListener('input', () => { f.q = qi.value; store.set('devFilter', f); const pos = qi.selectionStart; draw(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); });
@@ -629,9 +633,17 @@
   }
 
   // --------------------------------------------------------------- topology
-  const NODE_W = 230; const NODE_H = 64; const CL_W = 196; const CL_H = 42; const GAP = 36; const VGAP = 92; const CGAP = 10;
+  // Compact by default: only mesh nodes (box / repeater) with a summary of their
+  // clients. Clicking a node lists its clients in the side panel. The full map
+  // with every client can be switched on ("Endgeräte anzeigen").
+  const NODE_W = 300; const NODE_H = 84; const CL_W = 196; const CL_H = 42;
+  const GAP = 40; const VGAP = 96; const CGAP = 10; const HEAD_H = 24;
+  const GROUP_ORDER = ['LAN', '2,4 GHz', '5 GHz', '6 GHz', 'WLAN'];
 
-  function buildTree(topo, showClients) {
+  const isWlanLink = (l) => !!l && (l.type || '').toUpperCase() === 'WLAN';
+  const clientGroup = (c) => (isWlanLink(c.link) ? (c.link.band || 'WLAN') : 'LAN');
+
+  function buildTree(topo) {
     const nodes = new Map(topo.nodes.map((n) => [n.id, n]));
     const adj = new Map();
     topo.links.forEach((l) => {
@@ -642,8 +654,8 @@
     const infra = topo.nodes.filter((n) => n.infrastructure);
     const root = infra.find((n) => n.role === 'master') || infra[0] || topo.nodes[0];
     if (!root) return null;
-    const T = new Map(); // id -> {node, children:[], clients:[], link}
-    const mk = (n, link) => { const t = { node: n, children: [], clients: [], link }; T.set(n.id, t); return t; };
+    const T = new Map(); // id -> {node, children, all (clients), link}
+    const mk = (n, link) => { const t = { node: n, children: [], all: [], link }; T.set(n.id, t); return t; };
     const rootT = mk(root, null);
     const queue = [root.id];
     while (queue.length) {
@@ -656,25 +668,44 @@
       });
     }
     infra.forEach((n) => { if (!T.has(n.id)) rootT.children.push(mk(n, null)); });
-    if (showClients) {
-      topo.nodes.filter((n) => !n.infrastructure).forEach((n) => {
-        const parents = (adj.get(n.id) || []).filter(([o]) => T.has(o));
-        if (!parents.length) return;
-        const [pid, link] = parents[0];
-        T.get(pid).clients.push({ node: n, link });
-      });
-      T.forEach((t) => t.clients.sort((a, b) => (a.node.name || '').localeCompare(b.node.name || '', 'de')));
-    }
-    return rootT;
+    topo.nodes.filter((n) => !n.infrastructure).forEach((n) => {
+      const parents = (adj.get(n.id) || []).filter(([o]) => T.has(o));
+      if (parents.length) T.get(parents[0][0]).all.push({ node: n, link: parents[0][1] });
+    });
+    // grouped by connection (LAN, 2,4 GHz, 5 GHz …), weakest signal first
+    const order = (c) => { const i = GROUP_ORDER.indexOf(clientGroup(c)); return i < 0 ? 9 : i; };
+    T.forEach((t) => t.all.sort((a, b) => order(a) - order(b)
+      || (a.node.signal ?? 999) - (b.node.signal ?? 999)
+      || (a.node.name || '').localeCompare(b.node.name || '', 'de')));
+    return { root: rootT, T };
   }
 
-  function layoutTree(t) {
-    const n = t.clients.length;
-    t.cols = n === 0 ? 0 : n <= 5 ? 1 : n <= 14 ? 2 : 3;
-    t.rows = t.cols ? Math.ceil(n / t.cols) : 0;
-    t.cbW = t.cols ? t.cols * CL_W + (t.cols - 1) * CGAP : 0;
-    t.cbH = t.rows ? t.rows * CL_H + (t.rows - 1) * CGAP : 0;
-    t.children.forEach(layoutTree);
+  function clientStats(t) {
+    const wlan = t.all.filter((c) => isWlanLink(c.link)).length;
+    const weak = t.all.filter((c) => c.node.signal != null && c.node.signal < WEAK_SIGNAL).length;
+    return { total: t.all.length, wlan, lan: t.all.length - wlan, weak };
+  }
+
+  function layoutTree(t, showClients) {
+    t.items = []; t.cbW = 0; t.cbH = 0;
+    const clients = showClients ? t.all : [];
+    if (clients.length) {
+      const cols = clients.length <= 6 ? 1 : clients.length <= 16 ? 2 : 3;
+      t.cbW = cols * CL_W + (cols - 1) * CGAP;
+      let y = 0;
+      GROUP_ORDER.concat(['?']).forEach((g) => {
+        const members = clients.filter((c) => (GROUP_ORDER.includes(clientGroup(c)) ? clientGroup(c) : '?') === g);
+        if (!members.length) return;
+        t.items.push({ head: `${g === '?' ? 'Sonstige' : g} · ${members.length}`, x: 0, y });
+        y += HEAD_H;
+        members.forEach((c, i) => {
+          t.items.push({ c, x: (i % cols) * (CL_W + CGAP), y: y + Math.floor(i / cols) * (CL_H + CGAP) });
+        });
+        y += Math.ceil(members.length / cols) * (CL_H + CGAP) + 6;
+      });
+      t.cbH = y - CGAP - 6;
+    }
+    t.children.forEach((c) => layoutTree(c, showClients));
     const kids = t.children.reduce((s, c) => s + c.w, 0) + Math.max(0, t.children.length - 1) * GAP;
     t.rowW = t.cbW + (t.cbW && t.children.length ? GAP : 0) + kids;
     t.w = Math.max(NODE_W, t.rowW);
@@ -690,9 +721,8 @@
 
   function linkLabel(l) {
     if (!l) return '';
-    const wl = (l.type || '').toUpperCase() === 'WLAN';
     const rate = Math.max(l.rate_rx || 0, l.rate_tx || 0);
-    return `${wl ? (l.band || 'WLAN') : 'LAN'}${rate ? ` · ${fmtKbit(rate)}` : ''}`;
+    return `${isWlanLink(l) ? (l.band || 'WLAN') : 'LAN'}${rate ? ` · ${fmtKbit(rate)}` : ''}`;
   }
   const trunc = (s, n) => { s = String(s || ''); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
 
@@ -706,10 +736,9 @@
       const n = t.node; const x = t.cx - NODE_W / 2; const y = t.y;
       grow(x, y, x + NODE_W, y + NODE_H);
       t.children.forEach((c) => {
-        const wl = c.link && (c.link.type || '').toUpperCase() === 'WLAN';
-        links += `<path class="t-link ${wl ? 'wlan' : 'lan'}" d="${curve(t.cx, y + NODE_H, c.cx, c.y)}"/>`;
+        links += `<path class="t-link ${isWlanLink(c.link) ? 'wlan' : 'lan'}" d="${curve(t.cx, y + NODE_H, c.cx, c.y)}"/>`;
         if (c.link) {
-          // label sits on the bezier curve at t=0.68 – close to the child, so siblings don't overlap
+          // label on the bezier curve at t=0.68 – close to the child, so siblings don't overlap
           const s = 0.68; const u = 1 - s; const y0 = y + NODE_H; const my = (y0 + c.y) / 2;
           const lx = t.cx * (u ** 3 + 3 * u * u * s) + c.cx * (3 * u * s * s + s ** 3);
           const ly = y0 * u ** 3 + my * (3 * u * u * s + 3 * u * s * s) + c.y * s ** 3;
@@ -718,39 +747,43 @@
         }
         walk(c);
       });
-      if (t.clients.length) {
-        const bx = t.cbX + t.cbW / 2;
-        links += `<path class="t-link client lan" style="stroke:var(--border-strong)" d="${curve(t.cx, y + NODE_H, bx, t.cbY - 12)}"/>`;
-        nodes += `<rect class="t-group" x="${t.cbX - 8}" y="${t.cbY - 12}" width="${t.cbW + 16}" height="${t.cbH + 24}" rx="14"/>`;
-        grow(t.cbX - 8, t.cbY - 12, t.cbX + t.cbW + 8, t.cbY + t.cbH + 12);
-        t.clients.forEach((c, i) => {
-          const col = i % t.cols; const row = Math.floor(i / t.cols);
-          const cx = t.cbX + col * (CL_W + CGAP); const cy = t.cbY + row * (CL_H + CGAP);
-          const wl = c.link && (c.link.type || '').toUpperCase() === 'WLAN';
-          const sub = [c.node.ip, linkLabel(c.link)].filter(Boolean).join(' · ');
+      if (t.items.length) {
+        links += `<path class="t-link client" d="${curve(t.cx, y + NODE_H, t.cbX + t.cbW / 2, t.cbY - 14)}"/>`;
+        nodes += `<rect class="t-group" x="${t.cbX - 10}" y="${t.cbY - 14}" width="${t.cbW + 20}" height="${t.cbH + 26}" rx="14"/>`;
+        grow(t.cbX - 10, t.cbY - 14, t.cbX + t.cbW + 10, t.cbY + t.cbH + 12);
+        t.items.forEach((it) => {
+          const cx = t.cbX + it.x; const cy = t.cbY + it.y;
+          if (it.head) { nodes += `<text class="t-head" x="${cx + 2}" y="${cy + 15}">${esc(it.head)}</text>`; return; }
+          const c = it.c; const sig = c.node.signal;
+          const stripe = sig != null ? signalClass(sig) : isWlanLink(c.link) ? 'wlan' : 'lan';
+          const sub = [c.node.ip, sig != null ? `${sig} %` : (c.link && c.link.rate_rx ? fmtKbit(Math.max(c.link.rate_rx, c.link.rate_tx || 0)) : '')].filter(Boolean).join(' · ');
           nodes += `<g class="t-node t-client ${selected === c.node.id ? 'selected' : ''}" data-id="${esc(c.node.id)}">
             <rect class="bg" x="${cx}" y="${cy}" width="${CL_W}" height="${CL_H}" rx="10"/>
-            <rect class="stripe ${wl ? 'wlan' : 'lan'}" x="${cx}" y="${cy + 8}" width="3.5" height="${CL_H - 16}" rx="1.75"/>
+            <rect class="stripe ${stripe}" x="${cx}" y="${cy + 8}" width="4" height="${CL_H - 16}" rx="2"/>
             <text class="n" x="${cx + 14}" y="${cy + 18}">${esc(trunc(c.node.name, 24))}</text>
             <text class="s" x="${cx + 14}" y="${cy + 33}">${esc(trunc(sub, 32))}</text></g>`;
         });
       }
       const master = n.role === 'master';
+      const st = clientStats(t);
+      const icon = /repeater|powerline/i.test(n.model || '') ? 'repeater' : 'router';
       nodes += `<g class="t-node ${master ? 'master' : ''} ${selected === n.id ? 'selected' : ''}" data-id="${esc(n.id)}">
         <rect class="bg" x="${x}" y="${y}" width="${NODE_W}" height="${NODE_H}" rx="16"/>
-        <rect class="ico" x="${x + 12}" y="${y + 12}" width="40" height="40" rx="11"/>
-        ${iconG(master ? 'router' : 'repeater', x + 21, y + 21, 22)}
-        <text class="n" x="${x + 64}" y="${y + 28}">${esc(trunc(n.name, 22))}</text>
-        <text class="s" x="${x + 64}" y="${y + 46}">${esc(trunc(`${master ? 'Mesh Master' : n.role === 'slave' ? 'Mesh Repeater' : 'Gerät'}${n.model && n.model !== n.name ? ` · ${n.model}` : ''}`, 30))}</text></g>`;
+        <rect class="ico" x="${x + 14}" y="${y + 20}" width="44" height="44" rx="12"/>
+        ${iconG(icon, x + 24, y + 30, 24)}
+        <text class="n" x="${x + 72}" y="${y + 27}">${esc(trunc(n.name, 26))}</text>
+        <text class="s" x="${x + 72}" y="${y + 45}">${esc(trunc(`${master ? 'Mesh Master' : n.role === 'slave' ? 'Mesh Repeater' : 'Gerät'}${n.model && n.model !== n.name ? ` · ${n.model}` : ''}`, 38))}</text>
+        <text class="st" x="${x + 72}" y="${y + 66}"><tspan class="b">${st.total}</tspan> ${st.total === 1 ? 'Gerät' : 'Geräte'}${st.wlan ? ` · ${st.wlan} WLAN` : ''}${st.lan ? ` · ${st.lan} LAN` : ''}${st.weak ? `<tspan class="weak"> · ${st.weak} schwach</tspan>` : ''}</text></g>`;
     };
     walk(rootT);
     return { svg: `<g class="links">${links}</g><g class="nodes">${nodes}</g><g class="labels">${labels}</g>`, bounds };
   }
 
   async function renderTopology(el, token) {
-    const opts = store.get('topo', { clients: true });
-    let selected = null; let view = null;
-    setHeader('Mesh-Topologie', 'Aufbau des Mesh-Netzes mit Verbindungsart und -geschwindigkeit', `<button class="btn" id="reloadBtn">${ic('refresh')}<span class="hide-sm">Aktualisieren</span></button>`);
+    // new key: compact view is the default now
+    const opts = store.get('topo.v2', { clients: false });
+    let selected = null; let view = null; let tree = null;
+    setHeader('Mesh-Topologie', 'Aufbau des Mesh-Netzes – Box oder Repeater anklicken für die verbundenen Geräte', `<button class="btn" id="reloadBtn">${ic('refresh')}<span class="hide-sm">Aktualisieren</span></button>`);
     el.innerHTML = loading(6);
     const load = async (force) => { S.topo = await api(`topology${force ? '?force=1' : ''}`); };
     try { await load(); } catch (e) { el.innerHTML = errorBox(e.message); return; }
@@ -759,10 +792,12 @@
     el.innerHTML = `<div class="topo-wrap card" id="topo">
       <div class="topo-tools">
         <div class="card"><button class="icon-btn" data-z="in" title="Vergrößern">${ic('plus')}</button><button class="icon-btn" data-z="out" title="Verkleinern">${ic('minus')}</button><button class="icon-btn" data-z="fit" title="Einpassen">${ic('fit')}</button></div>
-        <div class="card" style="padding:4px 12px"><label class="check"><input type="checkbox" id="showClients" ${opts.clients ? 'checked' : ''}>Endgeräte anzeigen</label></div>
+        <div class="card" style="padding:4px 12px"><label class="check"><input type="checkbox" id="showClients" ${opts.clients ? 'checked' : ''}>Alle Endgeräte in der Karte</label></div>
       </div>
       <svg id="topoSvg"><g id="vp"></g></svg>
-      <div class="topo-legend card"><span><i class="ln" style="border-color:var(--lan)"></i>LAN</span><span><i class="ln" style="border-color:var(--wlan);border-top-style:dashed"></i>WLAN</span><span class="faint" id="topoCount"></span></div>
+      <div class="topo-legend card"><span><i class="ln" style="border-color:var(--lan)"></i>LAN</span><span><i class="ln" style="border-color:var(--wlan);border-top-style:dashed"></i>WLAN</span>
+        ${opts.clients ? '<span><i class="sq" style="background:var(--ok)"></i>gut</span><span><i class="sq" style="background:var(--warn)"></i>mittel</span><span><i class="sq" style="background:var(--err)"></i>schwach</span>' : ''}
+        <span class="faint" id="topoCount"></span></div>
       <div id="detail"></div>
     </div>`;
     const svg = $('#topoSvg'); const vp = $('#vp');
@@ -772,43 +807,79 @@
       if (!bounds) return;
       const r = svg.getBoundingClientRect(); const pad = 60;
       const bw = bounds.x2 - bounds.x1; const bh = bounds.y2 - bounds.y1;
-      const k = Math.min(1.2, (r.width - pad * 2) / bw, (r.height - pad * 2 - 40) / bh);
+      const k = Math.min(1.25, (r.width - pad * 2) / bw, (r.height - pad * 2 - 40) / bh);
       view = { k, x: (r.width - bw * k) / 2 - bounds.x1 * k, y: Math.max(pad + 20, (r.height - bh * k) / 2) - bounds.y1 * k };
       apply();
     };
     const draw = (refit) => {
-      const tree = buildTree(S.topo, opts.clients);
+      tree = buildTree(S.topo);
       if (!tree) { vp.innerHTML = ''; return; }
-      layoutTree(tree); placeTree(tree, 0, 0);
-      const out = topoSVG(tree, selected);
+      layoutTree(tree.root, opts.clients); placeTree(tree.root, 0, 0);
+      const out = topoSVG(tree.root, selected);
       vp.innerHTML = out.svg; bounds = out.bounds;
       const infra = S.topo.nodes.filter((n) => n.infrastructure).length;
-      $('#topoCount').textContent = `${infra} Mesh-Knoten · ${S.topo.links.length} Verbindungen`;
+      const clients = S.topo.nodes.length - infra;
+      $('#topoCount').textContent = `${infra} Mesh-Knoten · ${clients} Endgeräte`;
       if (refit || !view) fit(); else apply();
     };
+
+    const clientRow = (c) => {
+      const n = c.node;
+      const meta = [n.vendor || (n.private ? 'Private MAC' : ''), n.ip, linkLabel(c.link)].filter(Boolean).join(' · ');
+      return `<div class="list-item clickable" data-client="${esc(n.id)}" style="padding:8px 16px">
+        <div class="avatar ${isWlanLink(c.link) ? 'wlan' : 'lan'}" style="width:30px;height:30px">${ic(deviceIcon({ name: n.name, model: n.model, vendor: n.vendor, interface: isWlanLink(c.link) ? '802.11' : '' }))}</div>
+        <div class="grow"><div class="title" style="font-size:13px">${esc(n.name)}</div><div class="meta">${esc(meta)}</div></div>
+        ${n.signal != null ? `<div class="row nowrap" style="gap:5px">${signalBars(n.signal)}</div>` : ''}</div>`;
+    };
+
     const showDetail = (id) => {
       selected = id; draw(false);
       const n = S.topo.nodes.find((x) => x.id === id);
       if (!n) { $('#detail').innerHTML = ''; return; }
-      const links = S.topo.links.filter((l) => l.source === id || l.target === id).map((l) => {
-        const other = S.topo.nodes.find((x) => x.id === (l.source === id ? l.target : l.source));
-        return `<div class="list-item" style="padding:9px 16px"><div class="avatar ${(l.type || '').toUpperCase() === 'WLAN' ? 'wlan' : 'lan'}" style="width:30px;height:30px">${ic((l.type || '').toUpperCase() === 'WLAN' ? 'wifi' : 'ethernet')}</div>
-          <div class="grow"><div class="title" style="font-size:13px">${esc(other ? other.name : '?')}</div><div class="meta">${esc(linkLabel(l))}${l.max_rx ? ` · max ${fmtKbit(Math.max(l.max_rx, l.max_tx || 0))}` : ''}</div></div></div>`;
-      }).join('');
+      let body = '';
+      if (n.infrastructure) {
+        const t = tree && tree.T.get(id);
+        const uplinks = S.topo.links.filter((l) => (l.source === id || l.target === id)).map((l) => {
+          const other = S.topo.nodes.find((x) => x.id === (l.source === id ? l.target : l.source));
+          if (!other || !other.infrastructure) return '';
+          return `<div class="list-item" style="padding:8px 16px"><div class="avatar ${isWlanLink(l) ? 'wlan' : 'lan'}" style="width:30px;height:30px">${ic(isWlanLink(l) ? 'wifi' : 'ethernet')}</div>
+            <div class="grow"><div class="title" style="font-size:13px">${esc(other.name)}</div><div class="meta">${esc(linkLabel(l))}${l.max_rx ? ` · max ${fmtKbit(Math.max(l.max_rx, l.max_tx || 0))}` : ''}</div></div></div>`;
+        }).join('');
+        let groups = '';
+        if (t && t.all.length) {
+          GROUP_ORDER.concat(['?']).forEach((g) => {
+            const members = t.all.filter((c) => (GROUP_ORDER.includes(clientGroup(c)) ? clientGroup(c) : '?') === g);
+            if (members.length) groups += `<div class="list-group">${g === '?' ? 'Sonstige' : g} · ${members.length}</div><div class="list">${members.map(clientRow).join('')}</div>`;
+          });
+        }
+        const st = t ? clientStats(t) : null;
+        body = `<div class="card-body" style="padding-top:8px"><dl class="kv">
+            <dt>Rolle</dt><dd>${n.role === 'master' ? 'Mesh Master' : n.role === 'slave' ? 'Mesh Repeater' : 'Gerät'}</dd>
+            ${n.model ? `<dt>Modell</dt><dd>${esc(n.model)}</dd>` : ''}
+            ${n.ip ? `<dt>IP</dt><dd class="mono">${esc(n.ip)}</dd>` : ''}
+            ${st ? `<dt>Endgeräte</dt><dd>${st.total} (${st.wlan} WLAN, ${st.lan} LAN)</dd>` : ''}
+            ${st && st.weak ? `<dt>Schwaches Signal</dt><dd style="color:var(--err)">${st.weak} Geräte</dd>` : ''}
+          </dl>
+          ${n.ip ? `<a class="btn sm" style="margin-top:14px;width:100%" href="http://${esc(n.ip)}" target="_blank" rel="noopener">${ic('external')}Oberfläche öffnen</a>` : ''}</div>
+          ${uplinks ? `<div class="list-group">Mesh-Verbindungen</div><div class="list">${uplinks}</div>` : ''}
+          ${groups || '<div class="card-body faint">Keine Endgeräte verbunden.</div>'}`;
+      } else {
+        const link = S.topo.links.find((l) => l.source === id || l.target === id);
+        const ap = link && S.topo.nodes.find((x) => x.id === (link.source === id ? link.target : link.source));
+        body = `<div class="card-body" style="padding-top:8px"><dl class="kv">
+            ${n.vendor || n.private ? `<dt>Hersteller</dt><dd>${n.private ? 'Private MAC (zufällig)' : esc(n.vendor)}</dd>` : ''}
+            ${n.ip ? `<dt>IP</dt><dd class="mono">${esc(n.ip)}</dd>` : ''}
+            ${n.mac ? `<dt>MAC</dt><dd class="mono">${esc(n.mac)}</dd>` : ''}
+            ${ap ? `<dt>Verbunden mit</dt><dd>${esc(ap.name)}</dd>` : ''}
+            ${link ? `<dt>Verbindung</dt><dd>${esc(linkLabel(link))}</dd>` : ''}
+            ${n.signal != null ? `<dt>Signal</dt><dd><span class="row" style="gap:6px;justify-content:flex-end">${signalBars(n.signal)}</span></dd>` : ''}
+          </dl>
+          ${ap ? `<button class="btn sm" style="margin-top:14px;width:100%" data-client="${esc(ap.id)}">${ic(/repeater/i.test(ap.model || '') ? 'repeater' : 'router')}Zu ${esc(ap.name)}</button>` : ''}</div>`;
+      }
       $('#detail').innerHTML = `<div class="card topo-detail">
-        <div class="card-head"><h2>${esc(n.name)}</h2><button class="icon-btn" id="closeDetail">${ic('x')}</button></div>
-        <div class="card-body"><dl class="kv">
-          <dt>Rolle</dt><dd>${n.role === 'master' ? 'Mesh Master' : n.role === 'slave' ? 'Mesh Repeater' : 'Endgerät'}</dd>
-          ${n.model ? `<dt>Modell</dt><dd>${esc(n.model)}</dd>` : ''}
-          ${n.firmware ? `<dt>Firmware</dt><dd>${esc(n.firmware)}</dd>` : ''}
-          ${n.ip ? `<dt>IP</dt><dd class="mono">${esc(n.ip)}</dd>` : ''}
-          ${n.mac ? `<dt>MAC</dt><dd class="mono">${esc(n.mac)}</dd>` : ''}
-        </dl>
-        ${n.infrastructure && n.ip ? `<a class="btn sm" style="margin-top:14px;width:100%" href="http://${esc(n.ip)}" target="_blank" rel="noopener">${ic('external')}Oberfläche öffnen</a>` : ''}
-        </div>
-        ${links ? `<div class="list-group">Verbindungen</div><div class="list">${links}</div>` : ''}
-      </div>`;
+        <div class="card-head"><h2>${esc(n.name)}</h2><button class="icon-btn" id="closeDetail">${ic('x')}</button></div>${body}</div>`;
       $('#closeDetail').addEventListener('click', () => { selected = null; $('#detail').innerHTML = ''; draw(false); });
+      $$('#detail [data-client]').forEach((r) => r.addEventListener('click', () => showDetail(r.dataset.client)));
     };
     draw(true);
 
@@ -845,8 +916,10 @@
       const r = svg.getBoundingClientRect();
       if (b.dataset.z === 'fit') fit(); else zoomAt(b.dataset.z === 'in' ? 1.25 : 0.8, r.width / 2, r.height / 2);
     }));
-    $('#showClients').addEventListener('change', (e) => { opts.clients = e.target.checked; store.set('topo', opts); draw(true); });
-    $('#reloadBtn').addEventListener('click', (e) => withBusy(e.currentTarget, async () => { try { await load(true); draw(false); } catch (err) { toast(err.message, 'err'); } }));
+    $('#showClients').addEventListener('change', (e) => { opts.clients = e.target.checked; store.set('topo.v2', opts); navigate(); });
+    $('#reloadBtn').addEventListener('click', (e) => withBusy(e.currentTarget, async () => {
+      try { await load(true); draw(false); if (selected) showDetail(selected); } catch (err) { toast(err.message, 'err'); }
+    }));
     const onResize = () => fit();
     window.addEventListener('resize', onResize);
     S.cleanup.push(() => window.removeEventListener('resize', onResize));

@@ -362,6 +362,8 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .legend { display: flex; gap: 16px; font-size: 12.5px; color: var(--text-2); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 
+.vendor-cell { max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); font-size: 13px; }
+
 /* WLAN signal bars */
 .sig { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; vertical-align: middle; }
 .sig i { width: 4px; border-radius: 1.5px; background: var(--border-strong); }
@@ -422,7 +424,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .topo-tools .card { display: flex; align-items: center; gap: 4px; padding: 4px; border-radius: 11px; }
 .topo-legend { position: absolute; left: 12px; bottom: 12px; padding: 8px 12px; font-size: 12px; display: flex; gap: 14px; flex-wrap: wrap; color: var(--text-2); z-index: 2; }
 .topo-legend .ln { display: inline-block; width: 22px; height: 0; border-top: 2.5px solid; vertical-align: middle; margin-right: 6px; }
-.topo-detail { position: absolute; top: 12px; right: 12px; width: 300px; max-width: calc(100% - 24px); max-height: calc(100% - 24px); overflow: auto; z-index: 3; box-shadow: var(--shadow-lg); }
+.topo-detail { position: absolute; top: 12px; right: 12px; width: 360px; max-width: calc(100% - 24px); max-height: calc(100% - 24px); overflow: auto; z-index: 3; box-shadow: var(--shadow-lg); }
 .t-link { fill: none; stroke-width: 2.2; }
 .t-link.lan { stroke: var(--lan); }
 .t-link.wlan { stroke: var(--wlan); stroke-dasharray: 6 5; }
@@ -443,6 +445,15 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .t-client.selected .bg { stroke: var(--accent); stroke-width: 2; }
 .t-client text.n { font-size: 12px; font-weight: 600; }
 .t-client .stripe.wlan { fill: var(--wlan); }
+.t-client .stripe.ok { fill: var(--ok); }
+.t-client .stripe.warn { fill: var(--warn); }
+.t-client .stripe.err { fill: var(--err); }
+.t-link.client { stroke: var(--border-strong); stroke-width: 1.4; fill: none; }
+.t-head { fill: var(--text-3); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; font-family: var(--font); }
+.t-node text.st { fill: var(--text-2); font-size: 11.5px; font-family: var(--font); }
+.t-node text.st .b { font-weight: 700; fill: var(--text); }
+.t-node text.st .weak { fill: var(--err); font-weight: 600; }
+.topo-legend .sq { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 .t-client .stripe.lan { fill: var(--lan); }
 .t-group { fill: none; stroke: var(--border); stroke-dasharray: 3 4; }
 
