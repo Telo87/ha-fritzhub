@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.1
+
+- Geräteliste: Aktionen (Umbenennen, Wake on LAN) bleiben am rechten Rand sichtbar, auch wenn die Tabelle breiter als der Bildschirm ist; Spalte „Rate“ wird schon unter 1400 px ausgeblendet
+
 ## 1.7.0
 
 - Neu: **Weboberflächen erkennen** – FritzHub prüft alle Geräte auf eine lokale Weboberfläche (Ports 80, 443, 8080, 8443, 5000, 5001, 8123, 8000, 8081, 8888; nur echte HTML-Seiten bzw. Anmeldeseiten zählen). Geräte bekommen ein „Web“-Kennzeichen, das die Oberfläche mit einem Klick in einem neuen Fenster öffnet; Filter „Weboberfläche“, Button „Weboberflächen suchen“, Links auch in der Mesh-Topologie. Geprüft wird beim Start, alle 30 Minuten und sofort bei neuen Geräten.

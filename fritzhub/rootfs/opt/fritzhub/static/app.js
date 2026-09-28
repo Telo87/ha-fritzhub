@@ -712,13 +712,13 @@
             : h.vendor ? `<span title="${esc(h.vendor_full || h.vendor)}">${esc(h.vendor)}</span>` : '<span class="faint">Unbekannt</span>'}</td>
           <td>${conn}</td>
           <td class="nowrap">${h.active && h.signal != null ? `<div class="row" style="gap:6px">${signalBars(h.signal)}</div>` : '<span class="faint">–</span>'}</td>
-          <td class="nowrap num hide-sm">${rate}</td>
+          <td class="nowrap num hide-lg">${rate}</td>
           <td class="nowrap hide-sm" title="${h.last_seen ? `Zuletzt gesehen: ${fmtDateTime(h.last_seen)}` : ''}">${h.active
             ? '<span style="color:var(--ok)">jetzt</span>'
             : h.last_seen ? `<span class="${isStale(h) ? 'stale' : ''}">${fmtAgo(h.last_seen)}</span>`
               : `<span class="faint" title="FritzHub zeichnet seit ${fmtDateTime(S.overview.tracking_since)} auf">vor ${new Date(S.overview.tracking_since * 1000).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}</span>`}</td>
           <td class="nowrap">${canBlock ? `<label class="row" style="gap:8px" title="Internetzugang erlauben">${sw(!h.wan_blocked, `data-wan="${esc(h.ip)}"`)}</label>` : '<span class="faint">–</span>'}</td>
-          <td><div class="actions">${h.mac ? `<button class="icon-btn" title="Umbenennen" data-rename-host="${esc(h.mac)}">${ic('edit')}</button><button class="icon-btn" title="Wake on LAN" data-wol="${esc(h.mac)}">${ic('power')}</button>` : ''}</div></td>
+          <td class="sticky-end"><div class="actions">${h.mac ? `<button class="icon-btn" title="Umbenennen" data-rename-host="${esc(h.mac)}">${ic('edit')}</button><button class="icon-btn" title="Wake on LAN" data-wol="${esc(h.mac)}">${ic('power')}</button>` : ''}</div></td>
         </tr>`;
       }).join('');
       el.innerHTML = `<div class="toolbar">
@@ -726,7 +726,7 @@
           <div class="seg" id="kinds">${Object.entries(kinds).filter(([k]) => counts[k] || k === 'all' || k === 'online').map(([k, v]) => `<button data-kind="${k}" class="${f.kind === k ? 'active' : ''}">${v[0]} <span class="n">${counts[k]}</span></button>`).join('')}</div>
         </div>
         <div class="card"><div class="table-wrap"><table class="table">
-          <thead><tr>${th('name', 'Gerät')}${th('ip', 'IP-Adresse')}<th class="hide-md" style="cursor:default">MAC</th>${th('vendor', 'Hersteller', 'hide-sm')}${th('conn', 'Verbunden über')}${th('signal', 'Signal')}${th('speed', 'Rate', 'hide-sm')}${th('seen', 'Zuletzt gesehen', 'hide-sm')}<th style="cursor:default">Internet</th><th></th></tr></thead>
+          <thead><tr>${th('name', 'Gerät')}${th('ip', 'IP-Adresse')}<th class="hide-md" style="cursor:default">MAC</th>${th('vendor', 'Hersteller', 'hide-sm')}${th('conn', 'Verbunden über')}${th('signal', 'Signal')}${th('speed', 'Rate', 'hide-lg')}${th('seen', 'Zuletzt gesehen', 'hide-sm')}<th style="cursor:default">Internet</th><th class="sticky-end"></th></tr></thead>
           <tbody>${rows || `<tr><td colspan="10">${empty('search', 'Keine Geräte gefunden', 'Passe Suche oder Filter an.')}</td></tr>`}</tbody>
         </table></div></div>`;
       const qi = $('#q');
