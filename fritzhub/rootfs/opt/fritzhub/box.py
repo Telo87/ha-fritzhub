@@ -50,6 +50,15 @@ def format_firmware(display: str | None) -> str | None:
     return display
 
 
+def _mbit(value: Any) -> int | None:
+    """Link speed in Mbit/s. Some fields are reported in kbit/s – no WLAN link
+    is faster than ~6 Gbit/s, so larger values are converted."""
+    raw = _int(value)
+    if not raw:
+        return None
+    return round(raw / 1000) if raw > 20000 else raw
+
+
 def signal_percent(value: Any) -> int | None:
     """X_AVM-DE_SignalStrength is a percentage; convert dBm just in case."""
     raw = _int(value)
@@ -360,6 +369,40 @@ class FritzBox:
                 }
             )
         return result
+
+    def wlan_uplink(self) -> dict[str, Any] | None:
+        """WLAN connection of a repeater / mesh client to its mesh partner.
+
+        ``None`` if the device is connected via LAN (no WLAN uplink).
+        With Wi-Fi 7 (MLO) several bands can report the same uplink – the
+        fastest one is used, the others are listed in ``links``.
+        """
+        links = []
+        for i in self.wlan_services():
+            info = self.try_call(f"WLANConfiguration{i}", "X_AVM-DE_GetWLANConnectionInfo")
+            signal = _int(info.get("NewX_AVM-DE_SignalStrength"), 0) or 0
+            speed = _mbit(info.get("NewX_AVM-DE_Speed"))
+            if not info or (not signal and not speed):
+                continue
+            band = str(info.get("NewX_AVM-DE_FrequencyBand") or "")
+            links.append({
+                "band": {"2400": "2,4 GHz", "5000": "5 GHz", "6000": "6 GHz"}.get(band, band or None),
+                "channel": _int(info.get("NewChannel")),
+                "width": _int(info.get("NewX_AVM-DE_ChannelWidth")),
+                "standard": info.get("NewStandard") or None,
+                "signal": signal_percent(signal),
+                "speed_tx": speed,
+                "speed_rx": _mbit(info.get("NewX_AVM-DE_SpeedRX")),
+                "max_tx": _mbit(info.get("NewX_AVM-DE_SpeedMax")),
+                "max_rx": _mbit(info.get("NewX_AVM-DE_SpeedRXMax")),
+                "ssid": info.get("NewSSID") or None,
+                "bssid": (info.get("NewBSSID") or "").upper() or None,
+                "mlo": info.get("NewX_AVM-DE_MLOModes") or None,
+            })
+        if not links:
+            return None
+        links.sort(key=lambda link: (link["speed_tx"] or 0, link["signal"] or 0), reverse=True)
+        return {**links[0], "links": links}
 
     def wlan_clients(self, bands: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """WLAN devices associated with *this* box incl. signal strength.

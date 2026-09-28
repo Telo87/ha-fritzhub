@@ -175,6 +175,15 @@ class DemoBox(FritzBox):
             })
         return result
 
+    def wlan_uplink(self) -> dict[str, Any] | None:
+        if self.router or REPEATERS.get(self.cfg.host, ("", "", "LAN"))[2] == "LAN":
+            return None
+        signal = int(52 + 8 * math.sin(time.time() / 120) + random.uniform(-3, 3))
+        link = {"band": "5 GHz", "channel": 36, "width": 80, "standard": "ax", "signal": signal,
+                "speed_tx": int(signal * 11), "speed_rx": int(signal * 10), "max_tx": 1201, "max_rx": 1201,
+                "ssid": "Mein-Heimnetz", "bssid": "3C:A6:2F:00:00:02", "mlo": None}
+        return {**link, "links": [link]}
+
     def wlan_clients(self, bands: list[dict[str, Any]]) -> list[dict[str, Any]]:
         signals = {"Mähroboter": 14, "Shelly-Plug-Garage": 29, "ESP-Wetterstation": 38, "Brother-Drucker": 47,
                    "Echo-Dot": 55, "Sonos-Kueche": 61, "Pixel-8-Tom": 66}

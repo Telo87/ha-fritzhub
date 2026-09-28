@@ -59,6 +59,9 @@ class Hub:
         self._last_phone_poll = 0.0
         self._mesh_roles: dict[str, str] = {}
         self.wlan_clients: dict[str, dict[str, Any]] = {}
+        # WLAN uplink of repeaters / mesh clients: {box_id: {...}} + 1 h history
+        self.uplinks: dict[str, dict[str, Any] | None] = {}
+        self.uplink_history: dict[str, deque] = {}
         self._last_wlan_poll = 0.0
         self._task: asyncio.Task | None = None
         self._wake = asyncio.Event()
@@ -481,6 +484,8 @@ class Hub:
                     "wlan": st.get("wlan") or [],
                     "history": list(self.history.get(cfg.id, [])),
                     "phone": self.phone_summary.get(cfg.id),
+                    "uplink": self.uplinks.get(cfg.id),
+                    "uplink_known": cfg.id in self.uplinks,
                 }
             )
         hosts = self._hosts_cache[1] if self._hosts_cache else None
@@ -584,8 +589,27 @@ class Hub:
             h["mesh_role"] = node["role"]
 
     # ------------------------------------------------------------ WLAN signal
+    async def _poll_uplinks(self) -> None:
+        """WLAN connection quality of every box that is not the mesh master."""
+        boxes = [
+            b for b in self.active_boxes()
+            if self.state.get(b.cfg.id, {}).get("online") and self._mesh_roles.get(b.cfg.id) != "master"
+            and not (self.state[b.cfg.id].get("info") or {}).get("is_router")
+        ]
+        results = await asyncio.gather(*(self.run(b.wlan_uplink) for b in boxes), return_exceptions=True)
+        now = int(time.time())
+        for box, result in zip(boxes, results, strict=True):
+            if isinstance(result, Exception):
+                _LOGGER.debug("Uplink %s: %s", box.cfg.host, result)
+                continue
+            self.uplinks[box.cfg.id] = result
+            if result:
+                hist = self.uplink_history.setdefault(box.cfg.id, deque(maxlen=120))
+                hist.append((now, result["signal"], result["speed_tx"], result["speed_rx"]))
+
     async def _poll_wlan_clients(self) -> None:
         """Collect WLAN devices incl. signal strength from every box / repeater."""
+        await self._poll_uplinks()
         boxes = [
             b for b in self.active_boxes()
             if self.state.get(b.cfg.id, {}).get("online") and self.state[b.cfg.id].get("wlan")
@@ -650,6 +674,9 @@ class Hub:
                 node["interface"] = host["interface"]
             node["box_id"] = configured.get(node.get("ip") or "")
             node["web"] = self.web_uis.get(node.get("ip") or "", [])
+            if node.get("box_id") and node["box_id"] in self.uplinks:
+                node["uplink"] = self.uplinks[node["box_id"]]
+                node["uplink_history"] = list(self.uplink_history.get(node["box_id"], []))
             if not node["infrastructure"]:
                 client = next((self.wlan_clients[m] for m in node["macs"] if m in self.wlan_clients), None)
                 if client:

@@ -105,3 +105,32 @@ def test_call_barring_entry_xml():
     assert xml.startswith('<?xml version="1.0" encoding="utf-8"?><contact>')
     assert "<realName>Werbung &amp; Co</realName>" in xml
     assert '<number type="home" prio="1" id="0">+491711234567</number>' in xml
+
+
+def _uplink_box(responses):
+    from fritzhub.box import FritzBox
+    from fritzhub.config import BoxConfig
+
+    box = FritzBox(BoxConfig(host="x"))
+    box.wlan_services = lambda: sorted(responses)
+    box.try_call = lambda svc, action, **kw: responses[int(svc.removeprefix("WLANConfiguration"))]
+    return box
+
+
+def test_wlan_uplink_picks_fastest_link_and_converts_kbit():
+    box = _uplink_box({
+        1: {"NewX_AVM-DE_SignalStrength": "80", "NewX_AVM-DE_Speed": "286", "NewX_AVM-DE_FrequencyBand": "2400",
+            "NewX_AVM-DE_SpeedRX": "258000", "NewChannel": "6"},
+        2: {"NewX_AVM-DE_SignalStrength": "61", "NewX_AVM-DE_Speed": "1201", "NewX_AVM-DE_FrequencyBand": "5000",
+            "NewX_AVM-DE_SpeedRX": "960", "NewX_AVM-DE_SpeedMax": "2402", "NewX_AVM-DE_ChannelWidth": "80"},
+        3: {},  # guest network: no uplink
+    })
+    up = box.wlan_uplink()
+    assert (up["band"], up["signal"], up["speed_tx"], up["max_tx"], up["width"]) == ("5 GHz", 61, 1201, 2402, 80)
+    assert len(up["links"]) == 2
+    assert up["links"][1]["speed_rx"] == 258  # kbit/s -> Mbit/s
+
+
+def test_wlan_uplink_none_for_lan_connected():
+    box = _uplink_box({1: {"NewX_AVM-DE_SignalStrength": "0", "NewX_AVM-DE_Speed": "0"}, 2: {}})
+    assert box.wlan_uplink() is None

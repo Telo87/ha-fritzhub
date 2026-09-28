@@ -247,6 +247,48 @@
     if (/pc|desktop|win|imac/.test(n)) return 'devices';
     return (h.interface || '').includes('802.11') ? 'smartphone' : 'devices';
   }
+  // WLAN uplink of a repeater / mesh client ------------------------------------
+  const mbit = (v) => (v ? fmtBits(v * 1e6) : '–');
+  function uplinkSummary(b) {
+    if (b.uplink) {
+      const u = b.uplink;
+      return `<span class="row nowrap" style="gap:6px;display:inline-flex">${signalBars(u.signal, false)}<span>${esc(u.band || 'WLAN')} · ${u.signal} % · ${mbit(u.speed_tx)}</span></span>`;
+    }
+    return b.uplink_known ? `<span class="row nowrap" style="gap:6px;display:inline-flex">${ic('ethernet')}<span>LAN</span></span>` : '';
+  }
+  function sparkline(hist, idx, cls) {
+    const pts = (hist || []).filter((h) => h[idx] != null);
+    if (pts.length < 2) return '<div class="faint" style="font-size:12px">Verlauf wird gesammelt …</div>';
+    const W = 300; const H = 44; const t0 = pts[0][0]; const t1 = pts[pts.length - 1][0];
+    const max = idx === 1 ? 100 : Math.max(...pts.map((p) => p[idx])) * 1.1 || 1;
+    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${(((p[0] - t0) / Math.max(1, t1 - t0)) * W).toFixed(1)},${(H - (p[idx] / max) * (H - 4) - 2).toFixed(1)}`).join('');
+    return `<svg class="spark ${cls}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${d}"/></svg>`;
+  }
+  function uplinkDetail(n) {
+    const u = n.uplink;
+    if (!u) return '';
+    const hist = n.uplink_history || [];
+    const sig = hist.map((h) => h[1]).filter((v) => v != null);
+    const minSig = sig.length ? Math.min(...sig) : null;
+    const cls = signalClass(u.signal);
+    const warn = u.signal < WEAK_SIGNAL
+      ? `<div class="notice err" style="margin-top:10px;font-size:12.5px">${ic('alert')}<div>Schwache Anbindung – alle Geräte an diesem Repeater sind dadurch langsamer. Abhilfe: Repeater näher an ${esc(n.parentName || 'den Mesh Master')} stellen oder per LAN anbinden.</div></div>` : '';
+    return `<div class="list-group">WLAN-Anbindung</div><div class="card-body" style="padding-top:10px">
+      <dl class="kv">
+        <dt>Signal</dt><dd><span class="row" style="gap:6px;justify-content:flex-end">${signalBars(u.signal)}</span></dd>
+        <dt>Senden</dt><dd>${mbit(u.speed_tx)} <span class="faint">/ max ${mbit(u.max_tx)}</span></dd>
+        <dt>Empfangen</dt><dd>${mbit(u.speed_rx)} <span class="faint">/ max ${mbit(u.max_rx)}</span></dd>
+        <dt>Band</dt><dd>${esc(u.band || '–')}${u.channel ? ` · Kanal ${u.channel}` : ''}${u.width ? ` · ${u.width} MHz` : ''}</dd>
+        ${u.standard ? `<dt>Standard</dt><dd>802.11${esc(u.standard)}</dd>` : ''}
+        ${(u.links || []).length > 1 ? `<dt>Multi-Link (MLO)</dt><dd>${u.links.map((l) => `${esc(l.band)} ${l.signal} %`).join(' + ')}</dd>` : u.mlo ? `<dt>Multi-Link (MLO)</dt><dd>${esc(u.mlo)}</dd>` : ''}
+      </dl>
+      <div class="spark-head"><span>Signal – letzte Stunde</span>${minSig != null ? `<span class="faint">min. ${minSig} %</span>` : ''}</div>
+      ${sparkline(hist, 1, cls)}
+      <div class="spark-head"><span>Senderate</span></div>
+      ${sparkline(hist, 2, 'rate')}
+      ${warn}</div>`;
+  }
+
   // Links to a device's web interface(s): the first is "Web", further ones show their port
   function webBadges(web) {
     return (web || []).map((w, i) => {
@@ -482,7 +524,7 @@
             <div><div class="l">Laufzeit</div><div class="v">${fmtUptime(info.uptime)}</div></div>
             <div><div class="l">WLAN-Geräte</div><div class="v">${clients}</div></div>
             <div><div class="l">Firmware</div><div class="v">${info.update_available ? `<span class="badge warn">Update ${esc(info.update_version || '')}</span>` : '<span style="color:var(--ok)">Aktuell</span>'}</div></div>
-          </div>` : b.error ? `<div style="padding:0 18px 16px">${errorBox(b.error)}</div>` : ''}
+          </div>${!isMaster(info) && (b.uplink || b.uplink_known) ? `<div class="uplink-row ${b.uplink ? signalClass(b.uplink.signal) : ''}"><span class="l">Anbindung</span>${uplinkSummary(b)}</div>` : ''}` : b.error ? `<div style="padding:0 18px 16px">${errorBox(b.error)}</div>` : ''}
         </div>`;
       }).join('');
 
@@ -905,13 +947,14 @@
       const n = t.node; const x = t.cx - NODE_W / 2; const y = t.y;
       grow(x, y, x + NODE_W, y + NODE_H);
       t.children.forEach((c) => {
-        links += `<path class="t-link ${isWlanLink(c.link) ? 'wlan' : 'lan'}" d="${curve(t.cx, y + NODE_H, c.cx, c.y)}"/>`;
+        const up = c.node.uplink;
+        links += `<path class="t-link ${isWlanLink(c.link) || up ? 'wlan' : 'lan'} ${up ? `q-${signalClass(up.signal)}` : ''}" d="${curve(t.cx, y + NODE_H, c.cx, c.y)}"/>`;
         if (c.link) {
           // label on the bezier curve at t=0.68 – close to the child, so siblings don't overlap
           const s = 0.68; const u = 1 - s; const y0 = y + NODE_H; const my = (y0 + c.y) / 2;
           const lx = t.cx * (u ** 3 + 3 * u * u * s) + c.cx * (3 * u * s * s + s ** 3);
           const ly = y0 * u ** 3 + my * (3 * u * u * s + 3 * u * s * s) + c.y * s ** 3;
-          const txt = linkLabel(c.link); const w = txt.length * 6.3 + 16;
+          const txt = up ? `${up.band || 'WLAN'} · ${up.signal} % · ${mbit(up.speed_tx)}` : linkLabel(c.link); const w = txt.length * 6.3 + 16;
           labels += `<g class="t-label"><rect x="${lx - w / 2}" y="${ly - 11}" width="${w}" height="22" rx="11"/><text x="${lx}" y="${ly + 4}" text-anchor="middle">${esc(txt)}</text></g>`;
         }
         walk(c);
@@ -1001,6 +1044,11 @@
         ${n.signal != null ? `<div class="row nowrap" style="gap:5px">${signalBars(n.signal)}</div>` : ''}</div>`;
     };
 
+    const parentOf = (id) => {
+      let name = null;
+      tree && tree.T.forEach((t) => { if (t.children.some((c) => c.node.id === id)) name = t.node.name; });
+      return name;
+    };
     const showDetail = (id) => {
       selected = id; draw(false);
       const n = S.topo.nodes.find((x) => x.id === id);
@@ -1030,6 +1078,7 @@
             ${st && st.weak ? `<dt>Schwaches Signal</dt><dd style="color:var(--err)">${st.weak} Geräte</dd>` : ''}
           </dl>
           ${(n.web || []).length ? webButtons(n.web) : n.ip ? `<a class="btn sm" style="margin-top:14px;width:100%" href="http://${esc(n.ip)}" target="_blank" rel="noopener">${ic('external')}Oberfläche öffnen</a>` : ''}</div>
+          ${uplinkDetail({ ...n, parentName: parentOf(id) })}
           ${uplinks ? `<div class="list-group">Mesh-Verbindungen</div><div class="list">${uplinks}</div>` : ''}
           ${groups || '<div class="card-body faint">Keine Endgeräte verbunden.</div>'}`;
       } else {
@@ -1755,6 +1804,7 @@
             ${i.serial ? `<dt>Seriennummer</dt><dd class="mono">${esc(i.serial)}</dd>` : ''}
             <dt>Laufzeit</dt><dd>${fmtUptime(i.uptime)}</dd>
             <dt>Rolle</dt><dd>${roleText(i)}</dd>
+            ${!isMaster(i) && (b.uplink || b.uplink_known) ? `<dt>Anbindung</dt><dd>${uplinkSummary(b)}</dd>` : ''}
           </dl>` : errorBox(b.error || 'Nicht erreichbar')}
           <div class="row wrap" style="margin-top:16px;gap:8px">
             <a class="btn sm" href="http://${esc(b.config.host)}" target="_blank" rel="noopener">${ic('external')}Oberfläche</a>

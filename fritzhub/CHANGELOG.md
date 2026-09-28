@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.0
+
+- Neu: **WLAN-Anbindung der Repeater** – Signalstärke, aktuelle und maximale Sende-/Empfangsrate, Band, Kanal, Kanalbreite, Standard und Multi-Link (Wi-Fi 7) für jeden per WLAN angebundenen Repeater bzw. Mesh-Client
+- Mesh-Topologie: Verbindungslinie zum Repeater nach Anbindungsqualität eingefärbt; Detailfenster mit Verlauf der letzten Stunde und Hinweis bei schwacher Anbindung
+- Übersicht und System: Anbindung („5 GHz · 58 % · 638 Mbit/s“ bzw. „LAN“) bei jedem Repeater
+
 ## 1.7.3
 
 - Wake on LAN entfernt

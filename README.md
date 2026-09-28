@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.7.3-2563eb">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.8.0-2563eb">
   <img alt="Architekturen" src="https://img.shields.io/badge/arch-amd64%20%7C%20aarch64-0d9488">
   <img alt="Lizenz" src="https://img.shields.io/badge/license-MIT-64748b">
 </p>
@@ -25,7 +25,7 @@
 | | |
 |---|---|
 | 📊 **Übersicht** | Internetstatus, Durchsatz-Verlauf (1 Std / 24 Std / 7 Tage), **Datenvolumen pro Tag und Monat**, DSL-Werte (Sync, Störabstand, Dämpfung), IPv4/IPv6, Datenvolumen, Status aller Mesh-Geräte inkl. Firmware-Updates |
-| 🕸️ **Mesh-Topologie** | Interaktive Karte (Zoomen, Verschieben, Details per Klick) mit Verbindungsart (LAN/WLAN, Band) und Geschwindigkeit jeder Strecke |
+| 🕸️ **Mesh-Topologie** | Interaktive Karte (Zoomen, Verschieben, Details per Klick) mit Verbindungsart (LAN/WLAN, Band) und Geschwindigkeit jeder Strecke; **WLAN-Anbindung der Repeater** mit Signalstärke, Raten und Verlauf |
 | 💻 **Geräte** | Alle Geräte im Heimnetz mit Suche, **Weboberflächen mit einem Klick öffnen**, **Umbenennen**, **Alarm bei neuen Geräten** (HA-Meldung / Push / Ereignis), Filtern (Online, WLAN, LAN, Gäste …), Zugangspunkt im Mesh, **WLAN-Signalstärke** inkl. Übersicht der schwächsten Verbindungen, **Internetzugang sperren/erlauben**, „Zuletzt gesehen“ zum Aufräumen alter Einträge |
 | 📶 **WLAN** | **Kanalprüfung** mit Warnung bei Überschneidungen und Kanalvorschlag, alle Funknetze aller Boxen und Repeater, ein-/ausschalten, SSID und Passwort ändern, **QR-Code** zum Verbinden (ideal fürs Gastnetz) |
 | 📞 **Anrufe** | Anrufliste mit Filtern und Suche, gruppiert nach Tagen; **Nummern sperren** (Rufsperre); Rufumleitungen ein-/ausschalten |
