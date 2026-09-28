@@ -11,3 +11,15 @@ configuration:
   log_level:
     name: Protokollierungsstufe
     description: Detailgrad der Add-on-Protokolle.
+  direct_access:
+    name: Direktzugriff (ohne Home-Assistant-Menü)
+    description: FritzHub zusätzlich über einen eigenen Port mit Benutzername und Passwort erreichbar machen – z. B. für eine Webseiten-Karte im Dashboard oder ein Wand-Tablet. Adresse http://<IP von Home Assistant>:<Port>.
+  direct_port:
+    name: Port für den Direktzugriff
+    description: Standard 8765. Muss im Heimnetz frei sein.
+  direct_username:
+    name: Benutzername für den Direktzugriff
+    description: Wird auf der Anmeldeseite abgefragt.
+  direct_password:
+    name: Passwort für den Direktzugriff
+    description: Mindestens 8 Zeichen. Eine Änderung meldet alle Geräte ab.

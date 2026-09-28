@@ -27,8 +27,15 @@ options:
   publish_sensors: true
   verify_ssl: false
   log_level: info
+  direct_access: false
+  direct_port: 8765
+  direct_username: admin
 schema:
   scan_interval: int(5,300)
   publish_sensors: bool
   verify_ssl: bool
   log_level: list(debug|info|warning|error)
+  direct_access: bool
+  direct_port: port
+  direct_username: str
+  direct_password: password?

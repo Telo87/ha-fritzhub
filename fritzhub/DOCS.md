@@ -60,6 +60,41 @@ erlaubt sein.
 | `publish_sensors` | `true` | Wichtige Werte als Entitäten in Home Assistant bereitstellen |
 | `verify_ssl` | `false` | TLS-Zertifikate der Box prüfen (FRITZ!Boxen nutzen selbstsignierte Zertifikate) |
 | `log_level` | `info` | Protokollierungsstufe |
+| `direct_access` | `false` | Direktzugriff über einen eigenen Port mit Anmeldung (siehe unten) |
+| `direct_port` | `8765` | Port für den Direktzugriff |
+| `direct_username` | `admin` | Benutzername für den Direktzugriff |
+| `direct_password` | – | Passwort für den Direktzugriff (mindestens 8 Zeichen) |
+
+## Direktzugriff und Einbinden ins Dashboard
+
+Normalerweise ist FritzHub nur über Home Assistant erreichbar (Seitenleiste bzw. „Web-UI öffnen“).
+Für eine **Webseiten-Karte im Dashboard** (ohne das Home-Assistant-Menü drumherum) oder ein
+**Wand-Tablet** kann FritzHub zusätzlich über einen eigenen Port erreichbar gemacht werden:
+
+1. In den Add-on-Optionen `direct_access` einschalten, Benutzername und Passwort (mind. 8 Zeichen)
+   eintragen, speichern und das Add-on neu starten.
+2. `http://<IP von Home Assistant>:8765` im Browser öffnen und einmal anmelden –
+   mit „Angemeldet bleiben“ merkt sich das Gerät die Anmeldung (1 Jahr, verlängert sich bei Benutzung).
+3. Im Dashboard: *Karte hinzufügen › Webseite* mit dieser Adresse. Für die volle Fläche die Ansicht
+   auf den Typ *Panel (eine Karte)* stellen.
+
+```yaml
+type: iframe
+url: http://192.168.0.10:8765
+aspect_ratio: 75%
+```
+
+Hinweise:
+
+- Die Anmeldung gilt pro Browser bzw. Gerät. In der Webseiten-Karte muss man sich einmal
+  **in der Karte selbst** anmelden, auch wenn man FritzHub im selben Browser schon direkt geöffnet hat.
+- Wird Home Assistant über **HTTPS** geöffnet (z. B. Nabu Casa oder Reverse-Proxy), blockiert der
+  Browser eine `http://`-Seite in der Karte („gemischte Inhalte“). Die Karte funktioniert dann nur
+  im Heimnetz, wenn Home Assistant dort per `http://` aufgerufen wird – oder FritzHub wird ebenfalls
+  per HTTPS über den Reverse-Proxy bereitgestellt.
+- Den Port **nicht** im Router freigeben. Für unterwegs ist der normale Weg über Home Assistant gedacht.
+- Ein geändertes Passwort meldet alle Geräte ab. Nach 5 Fehlversuchen ist die Anmeldung
+  von dieser Adresse für 5 Minuten gesperrt. „Abmelden“ steht unten in der Seitenleiste.
 
 ## Weboberflächen
 
@@ -132,7 +167,9 @@ Nach einem Neustart von Home Assistant erscheinen sie wieder, sobald FritzHub da
 - Zugangsdaten liegen nur in `/data/boxes.json` im Add-on-Container (Dateirechte `600`) und werden
   nie an den Browser übertragen.
 - Das Add-on läuft im Host-Netzwerk (für die automatische Suche per Multicast), akzeptiert
-  Verbindungen aber ausschließlich vom Home-Assistant-Ingress-Proxy.
+  Verbindungen aber ausschließlich vom Home-Assistant-Ingress-Proxy – außer auf dem Port des
+  optionalen Direktzugriffs, der eine Anmeldung verlangt. Sitzungen werden nur als Hash
+  gespeichert (`/data/sessions.json`).
 
 ## Fehlerbehebung
 

@@ -603,6 +603,12 @@ svg.i.flip { transform: scaleX(-1); }
   .kpi { padding: 12px 14px; }
   .kpi-value { font-size: 20px; }
 }
+/* Login (direct access) */
+.login-screen { min-height: 100vh; display: grid; place-items: center; padding: 16px; background: radial-gradient(circle at 50% 0%, var(--accent-soft), transparent 60%), var(--bg); }
+.login-card { width: 100%; max-width: 360px; padding: 26px 24px 22px; box-shadow: var(--shadow-lg); animation: zoomIn .3s cubic-bezier(.2, .8, .2, 1); }
+.login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+.login-brand img { width: 40px; height: 40px; border-radius: 11px; }
+
 /* Motion ------------------------------------------------------------------
    All subtle (150–300 ms); switched off completely with "reduce motion". */
 

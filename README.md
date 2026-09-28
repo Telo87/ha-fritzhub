@@ -126,6 +126,7 @@ fritzhub/                  Add-on (config.yaml, Dockerfile, Doku)
 
 - Zugangsdaten werden ausschließlich lokal im Add-on-Datenverzeichnis (`/data/boxes.json`, nur für das Add-on lesbar) gespeichert.
 - Die Oberfläche ist nur über Home Assistant (Ingress) erreichbar, obwohl das Add-on im Host-Netzwerk läuft.
+  Optional: Direktzugriff mit eigenem Passwort, z. B. für eine Webseiten-Karte im Dashboard (siehe Dokumentation).
 - Dieses Projekt steht in keiner Verbindung zur FRITZ! GmbH (vormals AVM). FRITZ! und FRITZ!Box sind deren Marken.
 
 ## Lizenz

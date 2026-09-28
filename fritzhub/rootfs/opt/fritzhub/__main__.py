@@ -1,6 +1,7 @@
 """Entry point: ``python3 -m fritzhub``."""
 
 import logging
+import socket
 
 from aiohttp import web
 
@@ -21,7 +22,21 @@ def main() -> None:
     # unreachable boxes itself (once, with a readable message)
     logging.getLogger("fritzconnection").setLevel(logging.CRITICAL)
     app = create_app(options)
-    web.run_app(app, host="0.0.0.0", port=options.port, access_log=None, print=None)
+    socks = [socket.create_server(("0.0.0.0", options.port))]
+    if app["auth"]:
+        try:
+            socks.append(socket.create_server(("0.0.0.0", options.direct_port)))
+            logging.getLogger("fritzhub").info(
+                "Direktzugriff aktiv: http://<IP von Home Assistant>:%d (Benutzer „%s“)",
+                options.direct_port, options.direct_username,
+            )
+        except OSError as err:
+            app["auth"] = None
+            logging.getLogger("fritzhub").error(
+                "Direktzugriff: Port %d kann nicht geöffnet werden (%s) – bitte einen anderen wählen.",
+                options.direct_port, err,
+            )
+    web.run_app(app, sock=socks, access_log=None, print=None)
 
 
 if __name__ == "__main__":

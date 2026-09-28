@@ -186,6 +186,7 @@
     star: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/>',
     message: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
     bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+    logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/>',
     palette: '<path d="M12 3a9 9 0 0 0 0 18c1.1 0 1.8-.8 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/>',
   };
   const ic = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[name] || ''}</svg>`;
@@ -253,8 +254,18 @@
   };
 
   // -------------------------------------------------------------------- api
+  // Direct access (own port): the session token is kept in localStorage and sent
+  // as header – cookies are often blocked when FritzHub is embedded in an iframe
+  // (dashboard webpage card). Plain links (audio, downloads) carry it as ?t=.
+  const authToken = () => {
+    const t = store.get('token', null);
+    if (t) return t;
+    try { return JSON.parse(sessionStorage.getItem('fritzhub.token')); } catch { return null; }
+  };
+  const withToken = (url) => (authToken() ? `${url}${url.includes('?') ? '&' : '?'}t=${encodeURIComponent(authToken())}` : url);
   async function api(path, opts = {}) {
     const init = { method: opts.method || 'GET', headers: {} };
+    if (authToken()) init.headers['X-FritzHub-Token'] = authToken();
     if (opts.body !== undefined) {
       init.headers['Content-Type'] = 'application/json';
       init.body = JSON.stringify(opts.body);
@@ -263,8 +274,58 @@
     try { res = await fetch('api/' + path, init); } catch (e) { throw new Error('Keine Verbindung zum Add-on.'); }
     let data = null;
     try { data = await res.json(); } catch { /* not json */ }
+    if (res.status === 401 && data && data.login) { showLogin(); throw new Error('Bitte anmelden.'); }
     if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
     return data.data;
+  }
+
+  // Login screen for direct access
+  function showLogin(msg = '') {
+    if ($('#login')) return;
+    S.cleanup.forEach((fn) => { try { fn(); } catch { /* ignore */ } });
+    S.cleanup = [];
+    store.set('token', null);
+    $('#app').classList.add('hidden');
+    const el = document.createElement('div');
+    el.id = 'login';
+    el.className = 'login-screen';
+    el.innerHTML = `<form class="card login-card" autocomplete="on">
+        <div class="login-brand"><img src="static/favicon.svg" alt=""><div><div class="brand-name">FritzHub</div><div class="faint" style="font-size:12.5px">Direktzugriff</div></div></div>
+        <div class="field"><label for="lgUser">Benutzername</label><input class="input" id="lgUser" name="username" autocomplete="username" autocapitalize="none" required></div>
+        <div class="field"><label for="lgPass">Passwort</label><input class="input" id="lgPass" name="password" type="password" autocomplete="current-password" required></div>
+        <label class="check" style="margin:2px 0 16px"><input type="checkbox" id="lgRemember" checked>Angemeldet bleiben</label>
+        <div class="notice err ${msg ? '' : 'hidden'}" id="lgErr" style="margin-bottom:14px">${ic('alert')}<div>${esc(msg)}</div></div>
+        <button class="btn primary" style="width:100%" type="submit">Anmelden</button>
+        <p class="faint" style="font-size:12px;margin:14px 0 0;text-align:center">Zugangsdaten stehen in den Add-on-Optionen von FritzHub.</p>
+      </form>`;
+    document.body.appendChild(el);
+    const form = el.querySelector('form');
+    const err = (m) => { const n = $('#lgErr'); n.classList.remove('hidden'); n.querySelector('div').textContent = m; };
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = form.querySelector('button[type=submit]');
+      btn.disabled = true;
+      try {
+        const res = await fetch('api/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: $('#lgUser').value.trim(), password: $('#lgPass').value, remember: $('#lgRemember').checked }),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) { err((data && data.error) || `HTTP ${res.status}`); $('#lgPass').select(); return; }
+        // "remember": token survives closing the browser; otherwise only this tab
+        if ($('#lgRemember').checked) store.set('token', data.data.token);
+        else { store.set('token', null); try { sessionStorage.setItem('fritzhub.token', JSON.stringify(data.data.token)); } catch { /* ignore */ } }
+        location.reload();
+      } catch { err('Keine Verbindung zum Add-on.'); } finally { btn.disabled = false; }
+    });
+    $('#lgUser').focus();
+  }
+
+  async function logout() {
+    try { await api('logout', { method: 'POST' }); } catch { /* ignore */ }
+    store.set('token', null);
+    try { sessionStorage.removeItem('fritzhub.token'); } catch { /* ignore */ }
+    location.reload();
   }
 
   // -------------------------------------------------------------- UI pieces
@@ -1794,7 +1855,7 @@
               <div class="player hide-sm" data-player="${key}">${playing === key ? '<div class="track"><i style="width:0"></i></div><span class="time">0:00</span>' : ''}</div>
               <div class="actions row" style="gap:2px;margin-left:auto">
                 ${m.new ? `<button class="icon-btn" data-read="${key}" title="Als gehört markieren">${ic('check')}</button>` : ''}
-                <a class="icon-btn" href="api/tam/${bid}/${t.index}/${m.index}/audio?download=1" title="Herunterladen">${ic('download')}</a>
+                <a class="icon-btn" href="${esc(withToken(`api/tam/${bid}/${t.index}/${m.index}/audio?download=1`))}" title="Herunterladen">${ic('download')}</a>
                 <button class="icon-btn danger" data-del="${key}" title="Löschen">${ic('trash')}</button>
               </div></div>`;
           }).join('') || `<div style="padding:0 18px 18px" class="muted">Keine Nachrichten.</div>`}</div></div>`;
@@ -1825,7 +1886,7 @@
         const key = b.dataset.play;
         if (playing === key) { if (audio.paused) audio.play(); else audio.pause(); draw(); return; }
         const [t, m] = msgOf(key);
-        playing = key; audio.src = `api/tam/${bid}/${t.index}/${m.index}/audio`;
+        playing = key; audio.src = withToken(`api/tam/${bid}/${t.index}/${m.index}/audio`);
         draw();
         try { await audio.play(); } catch { /* error event handles it */ }
         await markRead(key); draw(); updatePlayer();
@@ -1955,7 +2016,7 @@
           <div class="grow"><div class="title">${esc(e.name)}</div><div class="meta">${e.dir ? 'Ordner' : fmtBytes(e.size)}${e.modified ? ` · ${new Date(e.modified).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })}` : ''}</div></div>
           <div class="actions row" style="gap:2px">
             ${pv ? `<button class="icon-btn hide-sm" title="Vorschau" data-preview-btn="${esc(e.name)}" data-stop>${ic('eye')}</button>` : ''}
-            ${e.dir ? '' : `<a class="icon-btn" title="Herunterladen" href="api/nas/${bid}/download?path=${encodeURIComponent(full)}" data-stop>${ic('download')}</a>`}
+            ${e.dir ? '' : `<a class="icon-btn" title="Herunterladen" href="${esc(withToken(`api/nas/${bid}/download?path=${encodeURIComponent(full)}`))}" data-stop>${ic('download')}</a>`}
             <button class="icon-btn" title="Umbenennen" data-rename="${esc(full)}" data-stop>${ic('edit')}</button>
             <button class="icon-btn danger" title="Löschen" data-del="${esc(full)}" data-dir="${e.dir ? 1 : 0}" data-stop>${ic('trash')}</button>
           </div></div>`;
@@ -1971,7 +2032,7 @@
       $$('[data-path]').forEach((b) => b.addEventListener('click', () => go(b.dataset.path)));
       $$('[data-open]').forEach((r) => r.addEventListener('click', (e) => { if (!e.target.closest('[data-stop]')) go(r.dataset.open); }));
       const previewable = entries.filter((x) => !x.dir && previewKind(x.name));
-      const urlFor = (f, inline) => `api/nas/${bid}/download?path=${encodeURIComponent(join(path, f.name))}${inline ? '&inline=1' : ''}`;
+      const urlFor = (f, inline) => withToken(`api/nas/${bid}/download?path=${encodeURIComponent(join(path, f.name))}${inline ? '&inline=1' : ''}`);
       const openByName = (name) => openPreview(previewable, previewable.findIndex((x) => x.name === name), urlFor);
       $$('[data-preview]').forEach((r) => r.addEventListener('click', (e) => { if (!e.target.closest('[data-stop]')) openByName(r.dataset.preview); }));
       $$('[data-preview-btn]').forEach((b) => b.addEventListener('click', () => openByName(b.dataset.previewBtn)));
@@ -2022,6 +2083,7 @@
         await new Promise((resolve) => {
           const xhr = new XMLHttpRequest(); const fd = new FormData(); fd.append('file', file, file.name);
           xhr.open('POST', `api/nas/${bid}/upload?path=${encodeURIComponent(path)}`);
+          if (authToken()) xhr.setRequestHeader('X-FritzHub-Token', authToken());
           xhr.upload.onprogress = (e) => { if (e.lengthComputable) { const pc = Math.round((e.loaded / e.total) * 100); row.querySelector('i').style.width = `${pc}%`; row.querySelector('.pct').textContent = `${pc} %`; } };
           xhr.onload = () => {
             let ok = false; let msg = `HTTP ${xhr.status}`;
@@ -2503,7 +2565,23 @@ actions:
     window.addEventListener('scroll', () => $('.topbar').classList.toggle('scrolled', window.scrollY > 4), { passive: true });
     window.addEventListener('hashchange', navigate);
     // keep nav badges fresh on all pages
-    setInterval(() => { if (currentPage() !== 'dashboard') loadOverview().catch(() => {}); }, 60000);
+    setInterval(() => { if (currentPage() !== 'dashboard' && !$('#login')) loadOverview().catch(() => {}); }, 60000);
+    start();
+  }
+  async function start() {
+    let ses = { direct: false, authenticated: true };
+    try {
+      const res = await fetch('api/session', { headers: authToken() ? { 'X-FritzHub-Token': authToken() } : {} });
+      const data = await res.json();
+      if (data.ok) ses = data.data;
+    } catch { /* offline – navigate() shows the error */ }
+    if (ses.direct) {
+      const btn = $('#logoutBtn');
+      btn.classList.remove('hidden');
+      btn.innerHTML = `${ic('logout')}<span>Abmelden (${esc(ses.user)})</span>`;
+      btn.addEventListener('click', logout);
+      if (!ses.authenticated) { showLogin(); return; }
+    }
     navigate();
   }
   boot();

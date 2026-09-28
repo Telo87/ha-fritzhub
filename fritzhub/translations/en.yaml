@@ -11,3 +11,15 @@ configuration:
   log_level:
     name: Log level
     description: Verbosity of the add-on logs.
+  direct_access:
+    name: Direct access (without the Home Assistant menu)
+    description: Make FritzHub reachable on its own port with username and password – e.g. for a webpage card in a dashboard or a wall tablet. Address http://<Home Assistant IP>:<port>.
+  direct_port:
+    name: Direct access port
+    description: Default 8765. Must be free on the host.
+  direct_username:
+    name: Direct access username
+    description: Asked for on the login page.
+  direct_password:
+    name: Direct access password
+    description: At least 8 characters. Changing it signs out all devices.

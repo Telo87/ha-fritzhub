@@ -28,6 +28,11 @@ class Options:
     # Only the Supervisor ingress proxy may talk to us (we run on the host network).
     # Set FRITZHUB_ALLOW_ALL=1 for local development.
     allow_all: bool = os.environ.get("FRITZHUB_ALLOW_ALL") == "1"
+    # optional direct access on its own port with username/password (see auth.py)
+    direct_access: bool = False
+    direct_port: int = 8765
+    direct_username: str = "admin"
+    direct_password: str = ""
 
 
 def load_options() -> Options:
@@ -39,8 +44,11 @@ def load_options() -> Options:
     except (OSError, ValueError) as err:
         _LOGGER.warning("Could not read %s: %s", OPTIONS_FILE, err)
         return opts
-    for key in ("scan_interval", "publish_sensors", "verify_ssl", "log_level"):
-        if key in raw:
+    for key in (
+        "scan_interval", "publish_sensors", "verify_ssl", "log_level",
+        "direct_access", "direct_port", "direct_username", "direct_password",
+    ):
+        if raw.get(key) is not None:
             setattr(opts, key, raw[key])
     return opts
 

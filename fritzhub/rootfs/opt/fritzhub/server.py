@@ -21,6 +21,7 @@ from aiohttp import web
 
 from . import __version__
 from .audio import to_playable_wav
+from .auth import COOKIE, MIN_PASSWORD, Auth
 from .box import BoxError, FritzBox, fetch_usernames, format_firmware
 from .config import BoxConfig, Options
 from .discovery import discover
@@ -31,6 +32,9 @@ _LOGGER = logging.getLogger(__name__)
 
 STATIC = Path(__file__).parent / "static"
 INGRESS_PROXY = "172.30.32.2"
+TOKEN_HEADER = "X-FritzHub-Token"
+# reachable without login on the direct-access port (app shell + login itself)
+OPEN_PATHS = {"/", "/api/login", "/api/session"}
 
 routes = web.RouteTableDef()
 
@@ -54,10 +58,33 @@ async def _json(request: web.Request) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------- middleware
+def _is_direct(request: web.Request) -> bool:
+    """Request came in on the direct-access port (not via ingress)."""
+    if not request.app.get("auth") or request.transport is None:
+        return False
+    sock = request.transport.get_extra_info("sockname")
+    return bool(sock) and sock[1] == request.app["options"].direct_port
+
+
+def _token(request: web.Request) -> str | None:
+    # header: works in iframes where the browser blocks cookies;
+    # ?t=: for plain links (audio, downloads, previews)
+    return (
+        request.headers.get(TOKEN_HEADER)
+        or request.cookies.get(COOKIE)
+        or (request.query.get("t") if request.method == "GET" else None)
+    )
+
+
 @web.middleware
 async def guard(request: web.Request, handler):
     options: Options = request.app["options"]
-    if not options.allow_all and request.remote != INGRESS_PROXY:
+    if _is_direct(request):
+        request["direct"] = True
+        open_path = request.path in OPEN_PATHS or request.path.startswith("/static/")
+        if not open_path and not request.app["auth"].valid(_token(request)):
+            return web.json_response({"ok": False, "error": "Bitte anmelden.", "login": True}, status=401)
+    elif not options.allow_all and request.remote != INGRESS_PROXY:
         return web.Response(status=403, text="Nur über Home Assistant Ingress erreichbar.")
     try:
         response = await handler(request)
@@ -85,6 +112,46 @@ async def index(request: web.Request) -> web.StreamResponse:
     return web.Response(
         text=html, content_type="text/html", headers={"Cache-Control": "no-cache"}
     )
+
+
+# ------------------------------------------------------------- direct access
+@routes.get("/api/session")
+async def session(request: web.Request) -> web.Response:
+    if not request.get("direct"):
+        return _ok({"direct": False, "authenticated": True})
+    auth: Auth = request.app["auth"]
+    return _ok({"direct": True, "authenticated": auth.valid(_token(request)), "user": auth.username})
+
+
+@routes.post("/api/login")
+async def login(request: web.Request) -> web.Response:
+    if not request.get("direct"):
+        raise web.HTTPNotFound()
+    auth: Auth = request.app["auth"]
+    ip = request.remote or "?"
+    wait = auth.locked(ip)
+    if wait:
+        raise web.HTTPTooManyRequests(text=f"Zu viele Fehlversuche – bitte in {max(1, round(wait / 60))} Min. erneut versuchen.")
+    data = await _json(request)
+    if not auth.check(ip, str(data.get("username", "")), str(data.get("password", ""))):
+        await asyncio.sleep(1)  # slows down guessing
+        if auth.locked(ip):
+            raise web.HTTPTooManyRequests(text="Zu viele Fehlversuche – bitte in 5 Min. erneut versuchen.")
+        raise web.HTTPUnauthorized(text="Benutzername oder Passwort falsch.")
+    token, max_age = auth.create(bool(data.get("remember", True)), request.headers.get("User-Agent", ""))
+    _LOGGER.info("Direktzugriff: Anmeldung von %s", ip)
+    response = _ok({"token": token})
+    response.set_cookie(COOKIE, token, max_age=max_age, httponly=True, samesite="Lax", path="/")
+    return response
+
+
+@routes.post("/api/logout")
+async def logout(request: web.Request) -> web.Response:
+    if request.get("direct"):
+        request.app["auth"].revoke(_token(request))
+    response = _ok()
+    response.del_cookie(COOKIE, path="/")
+    return response
 
 
 # --------------------------------------------------------------------- boxes
@@ -734,9 +801,25 @@ async def system_log(request: web.Request) -> web.Response:
 
 
 # ----------------------------------------------------------------------- app
+def _direct_auth(options: Options) -> Auth | None:
+    if not options.direct_access:
+        return None
+    if not options.direct_username or len(options.direct_password or "") < MIN_PASSWORD:
+        _LOGGER.error(
+            "Direktzugriff ist eingeschaltet, aber Benutzername fehlt oder das Passwort hat weniger als %d Zeichen – "
+            "Direktzugriff bleibt aus.", MIN_PASSWORD,
+        )
+        return None
+    if options.direct_port == options.port:
+        _LOGGER.error("Direktzugriff: Port %d ist bereits belegt – bitte einen anderen wählen.", options.direct_port)
+        return None
+    return Auth(options.direct_username, options.direct_password)
+
+
 def create_app(options: Options) -> web.Application:
     app = web.Application(middlewares=[guard], client_max_size=1024**3)
     app["options"] = options
+    app["auth"] = _direct_auth(options)
     if os.environ.get("FRITZHUB_DEMO") == "1":
         from .demo import DemoBox, DemoNas, demo_discover, demo_store, demo_webscan, seed_demo_devices, seed_demo_stats
 
