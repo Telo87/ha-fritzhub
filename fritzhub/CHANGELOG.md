@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.10.0
+
+- Neu: **Direktzugriff** (optional) – FritzHub zusätzlich über einen eigenen Port (Standard 8765) mit Benutzername und Passwort erreichbar, z. B. als **Webseiten-Karte im Dashboard** ohne das Home-Assistant-Menü oder auf einem Wand-Tablet; „Angemeldet bleiben“ (1 Jahr, verlängert sich), funktioniert auch eingebettet, Sperre nach 5 Fehlversuchen, Passwortänderung meldet alle Geräte ab
+- Neu: **Darstellung** in den Einstellungen – Hell/Dunkel/Automatisch und sechs Akzentfarben
+- Neu: Links „Auf GitHub bewerten“ und „Feedback & Fehler melden“ in der Seitenleiste
+- Design: sanfte Seitenübergänge, gestaffelt einblendende Karten und Listen, zählende Zahlen, einwachsende Balken, sich zeichnendes Diagramm mit Live-Anzeige, weiches Zoomen und fließende WLAN-Verbindungen in der Topologie, animierte Dialoge und Meldungen
+- Aktualisierung ohne Flackern: nur geänderte Werte werden ersetzt, Hover, Tooltips und Scroll-Position bleiben erhalten; Geräte, die online/offline gehen, leuchten kurz auf
+- Alle Animationen werden bei „Bewegung reduzieren“ abgeschaltet
+
 ## 1.9.0
 
 - Neu: **Geräte-Details** – Klick auf ein Gerät zeigt Status, Verfügbarkeit der letzten 7 Tage, Signalverlauf (3 Tage) und alle Ereignisse: Online/Offline, **Roaming zwischen Box und Repeatern**, Bandwechsel; Hinweis bei häufigem Hin- und Herspringen
