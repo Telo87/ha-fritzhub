@@ -1,4 +1,5 @@
-ARG BUILD_FROM
+# https://developers.home-assistant.io/docs/apps/configuration#app-dockerfile
+ARG BUILD_FROM=ghcr.io/home-assistant/base-python:3.13-alpine3.24
 FROM ${BUILD_FROM}
 
 # Python-Abhängigkeiten – vorgebaute Wheels von Home Assistant bevorzugen,
@@ -16,3 +17,9 @@ COPY rootfs /
 RUN chmod a+x /etc/services.d/fritzhub/run /etc/services.d/fritzhub/finish
 
 WORKDIR /opt
+
+LABEL \
+    org.opencontainers.image.title="Home Assistant App: FritzHub" \
+    org.opencontainers.image.description="FRITZ!Box & Mesh dashboard for Home Assistant" \
+    org.opencontainers.image.source="https://github.com/Telo87/ha-fritzhub" \
+    org.opencontainers.image.licenses="MIT"

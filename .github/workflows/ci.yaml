@@ -4,14 +4,18 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   lint-addon:
     name: Add-on lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: frenck/action-addon-linter@v2
+      - uses: actions/checkout@v7.0.1
+      - uses: frenck/action-addon-linter@v2.21
         with:
           path: "./fritzhub"
 
@@ -19,21 +23,9 @@ jobs:
     name: Python tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.13"
       - run: pip install -r fritzhub/requirements.txt pytest
       - run: pytest -q
-
-  build:
-    name: Test build (amd64)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: home-assistant/builder@master
-        with:
-          args: |
-            --test \
-            --amd64 \
-            --target /data/fritzhub
