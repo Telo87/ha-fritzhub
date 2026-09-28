@@ -1,0 +1,35 @@
+name: FritzHub
+version: "1.0.0"
+slug: fritzhub
+description: >-
+  Dashboard für FRITZ!Box & FRITZ!Repeater – Mesh-Topologie, Geräte, WLAN,
+  Anrufliste, Anrufbeantworter, FRITZ!NAS und Einstellungen an einem Ort.
+url: https://github.com/Telo87/ha-fritzhub
+# Nach dem ersten Release (Workflow "Publish") einkommentieren, dann wird das
+# fertige Image geladen statt auf dem Home-Assistant-Host gebaut:
+# image: ghcr.io/Telo87/{arch}-addon-fritzhub
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: application
+boot: auto
+ingress: true
+# 0 = der Supervisor vergibt einen freien Port (nötig wegen host_network)
+ingress_port: 0
+ingress_stream: true
+panel_icon: mdi:router-network
+panel_title: FritzHub
+# Host-Netzwerk wird für die automatische Suche (SSDP-Multicast) benötigt.
+host_network: true
+homeassistant_api: true
+options:
+  scan_interval: 10
+  publish_sensors: true
+  verify_ssl: false
+  log_level: info
+schema:
+  scan_interval: int(5,300)
+  publish_sensors: bool
+  verify_ssl: bool
+  log_level: list(debug|info|warning|error)

@@ -1,0 +1,13 @@
+configuration:
+  scan_interval:
+    name: Scan interval
+    description: How often (in seconds) the boxes are polled.
+  publish_sensors:
+    name: Publish sensors to Home Assistant
+    description: Provide download, upload, internet status, missed calls etc. as entities.
+  verify_ssl:
+    name: Verify TLS certificates
+    description: FRITZ!Boxes use self-signed certificates – only enable if a valid certificate is installed.
+  log_level:
+    name: Log level
+    description: Verbosity of the add-on logs.

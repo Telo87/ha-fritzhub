@@ -1,0 +1,13 @@
+configuration:
+  scan_interval:
+    name: Abfrageintervall
+    description: Wie oft (in Sekunden) die Boxen abgefragt werden.
+  publish_sensors:
+    name: Sensoren in Home Assistant anlegen
+    description: Download, Upload, Internetstatus, verpasste Anrufe u. a. als Entitäten bereitstellen.
+  verify_ssl:
+    name: TLS-Zertifikate prüfen
+    description: FRITZ!Boxen verwenden selbstsignierte Zertifikate – nur aktivieren, wenn ein gültiges Zertifikat hinterlegt ist.
+  log_level:
+    name: Protokollierungsstufe
+    description: Detailgrad der Add-on-Protokolle.

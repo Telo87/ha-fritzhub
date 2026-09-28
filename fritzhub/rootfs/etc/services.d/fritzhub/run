@@ -1,0 +1,7 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+FRITZHUB_PORT="$(bashio::addon.ingress_port)"
+export FRITZHUB_PORT
+bashio::log.info "Starte FritzHub auf Port ${FRITZHUB_PORT} ..."
+cd /opt || exit 1
+exec python3 -m fritzhub

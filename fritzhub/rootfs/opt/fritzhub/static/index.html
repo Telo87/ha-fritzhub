@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FritzHub</title>
+  <link rel="icon" href="static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="static/app.css?v={{VERSION}}">
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <img src="static/favicon.svg" alt="" class="brand-logo">
+        <div>
+          <div class="brand-name">FritzHub</div>
+          <div class="brand-sub">v{{VERSION}}</div>
+        </div>
+      </div>
+      <nav class="nav" id="nav"></nav>
+      <div class="sidebar-foot">
+        <button class="theme-toggle" id="themeToggle" title="Design umschalten"></button>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Menü"></button>
+        <div class="topbar-title">
+          <h1 id="pageTitle">Übersicht</h1>
+          <div class="topbar-sub" id="pageSub"></div>
+        </div>
+        <div class="topbar-actions" id="pageActions"></div>
+      </header>
+      <section class="content" id="content"></section>
+    </main>
+  </div>
+  <div class="scrim" id="scrim"></div>
+  <div class="toasts" id="toasts"></div>
+  <div id="modalRoot"></div>
+  <script src="static/app.js?v={{VERSION}}"></script>
+</body>
+</html>

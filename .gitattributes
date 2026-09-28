@@ -1,0 +1,3 @@
+# Keep LF line endings – the s6 service scripts break with CRLF inside the container
+* text=auto eol=lf
+*.png binary

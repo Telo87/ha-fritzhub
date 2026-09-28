@@ -1,0 +1,7 @@
+#!/usr/bin/env bashio
+# shellcheck shell=bash
+# Bei unerwartetem Beenden den Container stoppen, damit der Supervisor neu startet.
+if [[ "${1}" -ne 0 ]] && [[ "${1}" -ne 256 ]]; then
+  bashio::log.warning "FritzHub wurde unerwartet beendet (Code ${1})."
+  /run/s6/basedir/bin/halt
+fi
