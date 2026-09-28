@@ -672,11 +672,13 @@
       const parents = (adj.get(n.id) || []).filter(([o]) => T.has(o));
       if (parents.length) T.get(parents[0][0]).all.push({ node: n, link: parents[0][1] });
     });
-    // grouped by connection (LAN, 2,4 GHz, 5 GHz …), weakest signal first
+    // grouped by connection (LAN, 2,4 GHz, 5 GHz …), alphabetical within each group
+    const byName = (a, b) => (a.node.name || '').localeCompare(b.node.name || '', 'de', { sensitivity: 'base', numeric: true });
     const order = (c) => { const i = GROUP_ORDER.indexOf(clientGroup(c)); return i < 0 ? 9 : i; };
-    T.forEach((t) => t.all.sort((a, b) => order(a) - order(b)
-      || (a.node.signal ?? 999) - (b.node.signal ?? 999)
-      || (a.node.name || '').localeCompare(b.node.name || '', 'de')));
+    T.forEach((t) => {
+      t.all.sort((a, b) => order(a) - order(b) || byName(a, b));
+      t.children.sort(byName);
+    });
     return { root: rootT, T };
   }
 
@@ -1280,7 +1282,28 @@
 
   // ----------------------------------------------------------------- system
   async function renderSystem(el) {
-    setHeader('System', 'Geräteinformationen, Neustart und Ereignisse', `<button class="btn" id="reloadBtn">${ic('refresh')}<span class="hide-sm">Aktualisieren</span></button>`);
+    setHeader('System', 'Geräteinformationen, Neustart und Ereignisse', `<button class="btn danger" id="rebootAll">${ic('power')}<span class="hide-sm">Alle neu starten</span></button><button class="btn" id="reloadBtn">${ic('refresh')}<span class="hide-sm">Aktualisieren</span></button>`);
+    $('#rebootAll').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      const list = onlineBoxes();
+      if (!list.length) { toast('Keine erreichbaren Geräte.', 'err'); return; }
+      const slaves = list.filter((b) => isSlave(b.info));
+      const masters = list.filter((b) => !isSlave(b.info));
+      const names = slaves.concat(masters).map((b) => `<li>${esc(boxName(b))}${isMaster(b.info) ? ' <span class="faint">(zuletzt)</span>' : ''}</li>`).join('');
+      if (!(await confirmDialog(`Alle ${list.length} Geräte neu starten?`,
+        `Es werden nacheinander neu gestartet – erst die Repeater, zuletzt der Mesh Master:<ul style="margin:8px 0 10px;padding-left:20px">${names}</ul>`
+        + '<b>Internet, WLAN und Telefonie sind danach für ca. 3–5 Minuten nicht verfügbar.</b> Auch Home Assistant verliert währenddessen die Verbindung zu WLAN-Geräten.',
+        { ok: 'Alle neu starten', danger: true }))) return;
+      await withBusy(btn, async () => {
+        try {
+          const results = await api('system/reboot-all', { method: 'POST' });
+          const failed = results.filter((r) => !r.ok);
+          if (failed.length) toast(`Neustart fehlgeschlagen: ${failed.map((r) => `${r.name} (${r.error})`).join(', ')}`, 'err');
+          const ok = results.length - failed.length;
+          if (ok) toast(`Neustart für ${ok} ${ok === 1 ? 'Gerät' : 'Geräte'} ausgelöst.`);
+        } catch (err) { toast(err.message, 'err'); }
+      });
+    });
     const draw = () => {
       el.innerHTML = `<div class="grid cols-3">${boxes().map((b) => {
         const i = b.info || {};

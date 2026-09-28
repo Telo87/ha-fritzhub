@@ -506,6 +506,37 @@ async def nas_delete(request: web.Request) -> web.Response:
 
 
 # -------------------------------------------------------------------- system
+@routes.post("/api/system/reboot-all")
+async def system_reboot_all(request: web.Request) -> web.Response:
+    """Reboot every reachable box – repeaters first, the mesh master last.
+
+    Otherwise the repeaters would become unreachable (their traffic runs
+    through the master) before they received the command.
+    """
+    hub = _hub(request)
+    roles = hub._mesh_roles
+
+    def rank(box: FritzBox) -> int:
+        role = roles.get(box.cfg.id)
+        info = hub.state.get(box.cfg.id, {}).get("info") or {}
+        if role == "master" or (role is None and info.get("is_router")):
+            return 2
+        return 0 if role == "slave" else 1
+
+    boxes = sorted(
+        (b for b in hub.active_boxes() if hub.state.get(b.cfg.id, {}).get("online")), key=rank
+    )
+    results = []
+    for box in boxes:
+        name = box.cfg.name or box.cfg.host
+        try:
+            await hub.run(box.reboot)
+            results.append({"name": name, "ok": True})
+        except BoxError as err:
+            results.append({"name": name, "ok": False, "error": str(err)})
+    return _ok(results)
+
+
 @routes.post("/api/system/{box_id}/{action}")
 async def system_action(request: web.Request) -> web.Response:
     hub = _hub(request)

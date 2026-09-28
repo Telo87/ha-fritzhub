@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.0
+
+- Neu: „Alle neu starten“ auf der Seite System – startet alle erreichbaren Geräte nacheinander neu, Repeater zuerst und den Mesh Master zuletzt
+- Mesh-Topologie: Endgeräte innerhalb jeder Gruppe und Repeater alphabetisch sortiert
+
 ## 1.2.0
 
 - Neu: Hersteller-Erkennung anhand der MAC-Adresse (Spalte „Hersteller“ in der Geräteliste, durchsuchbar); zufällige/private MAC-Adressen werden als solche gekennzeichnet

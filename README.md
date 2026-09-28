@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.2.0-2563eb">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.3.0-2563eb">
   <img alt="Architekturen" src="https://img.shields.io/badge/arch-amd64%20%7C%20aarch64-0d9488">
   <img alt="Lizenz" src="https://img.shields.io/badge/license-MIT-64748b">
 </p>
@@ -31,7 +31,7 @@
 | 📞 **Anrufe** | Anrufliste mit Filtern und Suche, gruppiert nach Tagen; Rufumleitungen ein-/ausschalten |
 | 📼 **Anrufbeantworter** | Nachrichten direkt im Browser **abhören**, herunterladen, als gehört markieren, löschen; Anrufbeantworter ein-/ausschalten |
 | 🗂️ **FRITZ!NAS** | Dateibrowser mit Upload (Drag & Drop), Download, Ordner anlegen, Umbenennen und Löschen |
-| ⚙️ **System** | Geräteinfos, Ereignisprotokoll, Neustart, Internetverbindung neu aufbauen |
+| ⚙️ **System** | Geräteinfos, Ereignisprotokoll, Neustart einzeln oder **aller Geräte mit einem Klick** (Repeater zuerst, Mesh Master zuletzt), Internetverbindung neu aufbauen |
 | 🔎 **Automatische Suche** | Findet FRITZ!Boxen und Repeater per UPnP/SSDP und Subnetz-Scan |
 | 🔐 **Mehrere Zugänge** | Jede Box/jeder Repeater mit eigenen Zugangsdaten – oder mit einem Klick von der FRITZ!Box übernehmen |
 | 🏠 **HA-Sensoren** | Optional: Download/Upload, Internetstatus, externe IP, verpasste Anrufe, neue AB-Nachrichten, Geräte online |
