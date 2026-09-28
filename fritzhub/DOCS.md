@@ -61,6 +61,16 @@ erlaubt sein.
 | `verify_ssl` | `false` | TLS-Zertifikate der Box prüfen (FRITZ!Boxen nutzen selbstsignierte Zertifikate) |
 | `log_level` | `info` | Protokollierungsstufe |
 
+## Weboberflächen
+
+FritzHub prüft alle Geräte, die online sind, auf eine lokale Weboberfläche (Ports 80, 443, 8080, 8443,
+5000, 5001, 8123, 8000, 8081, 8888). Nur Ports, die eine HTML-Seite oder eine Anmeldeseite liefern,
+zählen. Geräte mit Weboberfläche tragen in der Geräteliste ein **„Web“**-Kennzeichen – ein Klick öffnet
+die Oberfläche in einem neuen Fenster.
+
+Die Links zeigen auf die lokale IP-Adresse des Geräts. Sie funktionieren daher nur, wenn der Browser im
+Heimnetz ist (oder per VPN verbunden) – nicht über den Fernzugriff von Home Assistant.
+
 ## Alarm bei neuen Geräten
 
 FritzHub merkt sich alle Geräte, die die FRITZ!Box kennt. Taucht eine unbekannte MAC-Adresse auf,

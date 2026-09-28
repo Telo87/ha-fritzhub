@@ -525,3 +525,27 @@ def seed_demo_stats(hub) -> None:
     for i, _name in enumerate(OFFLINE):
         if i < 3:
             stats.data["seen"][_mac(100 + i)] = {"first": now - 44 * 86400, "last": now - (i * 19 + 2) * 86400 - 3600}
+
+
+async def demo_webscan(hosts: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Fake web interfaces for a few demo devices."""
+    import asyncio
+
+    await asyncio.sleep(2)
+    fake = {
+        "homeassistant": [("http", 8123, "Home Assistant", False)],
+        "Synology-NAS": [("https", 5001, "Synology DiskStation", True), ("http", 5000, "Synology DiskStation", True)],
+        "Brother-Drucker": [("http", 80, "Brother HL-L2350DW", False)],
+        "Hue-Bridge": [("http", 80, "hue personal wireless lighting", False)],
+        "Shelly-Plug-Garage": [("http", 80, "Shelly Plug S", False)],
+        "ESP-Wetterstation": [("http", 80, None, False)],
+        "Repeater OG": [("http", 80, "FRITZ!Repeater 6000", True)],
+        "Repeater Garten": [("http", 80, "FRITZ!Repeater 3000 AX", True)],
+    }
+    found = {}
+    for h in hosts:
+        for scheme, port, title, login in fake.get(h.get("name"), []):
+            default = (scheme, port) in (("http", 80), ("https", 443))
+            url = f"{scheme}://{h['ip']}/" if default else f"{scheme}://{h['ip']}:{port}/"
+            found.setdefault(h["ip"], []).append({"url": url, "port": port, "scheme": scheme, "title": title, "login": login})
+    return found

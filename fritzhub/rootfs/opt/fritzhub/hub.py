@@ -15,6 +15,7 @@ from .ha import SensorPublisher
 from .nas import FritzNas
 from .oui import vendors
 from .stats import Stats
+from .webscan import scan as scan_web_uis
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ HISTORY_POINTS = 360  # e.g. 1 hour at 10 s interval
 MESH_TTL = 30
 HOSTS_TTL = 15
 PHONE_POLL = 60
+WEBSCAN_INTERVAL = 30 * 60
 WLAN_POLL = 30
 
 
@@ -38,6 +40,11 @@ class Hub:
         self.options = options
         self.stats = stats or Stats()
         self.settings = settings or Settings()
+        # devices with a web interface: {ip: [{url, port, title, …}]}
+        self.web_uis: dict[str, list[dict[str, Any]]] = {}
+        self.webscan_fn = scan_web_uis
+        self._webscan_task: asyncio.Task | None = None
+        self.last_webscan = 0.0
         self._last_save = time.time()
         self.store = store or BoxStore()
         self._box_cls = box_cls
@@ -111,6 +118,9 @@ class Hub:
             new = self.stats.update_known(self._hosts_cache[1], now)
             if new:
                 asyncio.get_running_loop().create_task(self._announce_new_devices(new))
+                self.start_webscan(new)  # check new devices right away
+            elif now - self.last_webscan > WEBSCAN_INTERVAL:
+                self.start_webscan()
         if now - self._last_save > 300:
             self._last_save = now
             asyncio.get_running_loop().run_in_executor(None, self.stats.save)
@@ -257,6 +267,36 @@ class Hub:
                 info["is_router"] = False
                 info["services"] = {**info["services"], "wan": False}
             st["info"] = info
+
+    # ------------------------------------------------------------ web interfaces
+    @property
+    def webscan_running(self) -> bool:
+        return bool(self._webscan_task and not self._webscan_task.done())
+
+    def start_webscan(self, hosts: list[dict[str, Any]] | None = None) -> bool:
+        """Scan all online devices (or only ``hosts``) in the background."""
+        if self.webscan_running:
+            return False
+        targets = hosts if hosts is not None else (self._hosts_cache[1] if self._hosts_cache else [])
+        if not targets:
+            return False
+        full = hosts is None
+        if full:
+            self.last_webscan = time.time()
+
+        async def run() -> None:
+            try:
+                found = await self.webscan_fn(targets)
+            except Exception:  # noqa: BLE001 - never break polling
+                _LOGGER.exception("Web interface scan failed")
+                return
+            if full:
+                self.web_uis = found
+            else:
+                self.web_uis.update(found)
+
+        self._webscan_task = asyncio.get_running_loop().create_task(run())
+        return True
 
     # ------------------------------------------------------------ new devices
     def describe_device(self, host: dict[str, Any]) -> dict[str, Any]:
@@ -509,6 +549,7 @@ class Hub:
         for h in hosts:
             h.update(vendors.lookup(h["mac"]) or {})
             h["new_since"] = self.stats.known_since(h["mac"]) or None
+            h["web"] = self.web_uis.get(h.get("ip") or "", []) if h["active"] else []
             seen = self.stats.seen(h["mac"]) or {}
             h["last_seen"] = seen.get("last")
             h["first_seen"] = seen.get("first")
@@ -608,6 +649,7 @@ class Hub:
                 node["active"] = host["active"]
                 node["interface"] = host["interface"]
             node["box_id"] = configured.get(node.get("ip") or "")
+            node["web"] = self.web_uis.get(node.get("ip") or "", [])
             if not node["infrastructure"]:
                 client = next((self.wlan_clients[m] for m in node["macs"] if m in self.wlan_clients), None)
                 if client:

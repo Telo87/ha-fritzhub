@@ -395,6 +395,11 @@ fieldset.plain:disabled { opacity: .5; }
 pre.code { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; font-family: var(--mono); font-size: 12px; overflow: auto; margin: 0; }
 code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-3); padding: 1px 5px; border-radius: 5px; }
 
+/* Web interface links */
+a.badge.weblink { background: var(--accent-soft); color: var(--accent); text-decoration: none; cursor: pointer; vertical-align: 1px; }
+a.badge.weblink:hover { background: var(--accent); color: #fff; }
+.badge svg.i { width: 12px; height: 12px; stroke-width: 2.4; }
+
 /* WLAN signal bars */
 .sig { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; vertical-align: middle; }
 .sig i { width: 4px; border-radius: 1.5px; background: var(--border-strong); }

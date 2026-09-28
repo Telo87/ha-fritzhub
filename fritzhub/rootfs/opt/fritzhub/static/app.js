@@ -246,6 +246,17 @@
     if (/pc|desktop|win|imac/.test(n)) return 'devices';
     return (h.interface || '').includes('802.11') ? 'smartphone' : 'devices';
   }
+  // Links to a device's web interface(s): the first is "Web", further ones show their port
+  function webBadges(web) {
+    return (web || []).map((w, i) => {
+      const tip = `${w.title ? `${w.title} – ` : ''}${w.url}${w.login ? ' (Anmeldung erforderlich)' : ''}`;
+      return ` <a class="badge weblink" href="${esc(w.url)}" target="_blank" rel="noopener noreferrer" title="Weboberfläche öffnen: ${esc(tip)}" data-stop>${ic(i === 0 ? 'globe' : 'external')}${i === 0 ? 'Web' : `:${w.port}`}</a>`;
+    }).join('');
+  }
+  function webButtons(web) {
+    return (web || []).map((w) => `<a class="btn sm" style="margin-top:10px;width:100%" href="${esc(w.url)}" target="_blank" rel="noopener noreferrer">${ic('globe')}${esc(w.title || 'Weboberfläche')}<span class="faint" style="font-weight:400">${w.port === 80 || w.port === 443 ? '' : ` :${w.port}`}</span></a>`).join('');
+  }
+
   // detected for the first time within the last 7 days (not part of the initial inventory)
   const NEW_DAYS = 7;
   const isNew = (h) => !!h.new_since && Date.now() / 1000 - h.new_since < NEW_DAYS * 86400;
@@ -645,7 +656,7 @@
   // ---------------------------------------------------------------- devices
   async function renderDevices(el, token) {
     const f = store.get('devFilter', { q: '', kind: 'all', sort: 'name', dir: 1 });
-    setHeader('Geräte', 'Alle bekannten Geräte im Heimnetz', `<button class="btn" id="reloadBtn">${ic('refresh')}<span class="hide-sm">Aktualisieren</span></button>`);
+    setHeader('Geräte', '<span id="devSub">Alle bekannten Geräte im Heimnetz</span>', `<button class="btn" id="webScanBtn" title="Alle Geräte nach Weboberflächen durchsuchen">${ic('globe')}<span class="hide-sm">Weboberflächen suchen</span></button><button class="btn" id="reloadBtn">${ic('refresh')}<span class="hide-sm">Aktualisieren</span></button>`);
     el.innerHTML = loading(8);
     const load = async (force) => { S.hosts = await api(`hosts${force ? '?force=1' : ''}`); };
     try { await load(); } catch (e) { el.innerHTML = errorBox(e.message); return; }
@@ -658,6 +669,7 @@
       wlan: ['WLAN', (h) => h.active && isWlan(h)],
       lan: ['LAN', (h) => h.active && !isWlan(h)],
       guest: ['Gäste', (h) => h.guest],
+      web: ['Weboberfläche', (h) => h.active && (h.web || []).length > 0],
       new: ['Neu', (h) => isNew(h)],
       stale: ['Lange offline', (h) => isStale(h)],
       weak: ['Schwaches WLAN', (h) => h.active && h.signal != null && h.signal < WEAK_SIGNAL],
@@ -691,7 +703,7 @@
         const canBlock = h.ip && h.wan_blocked !== null && h.wan_blocked !== undefined;
         return `<tr class="${h.active ? '' : 'offline'}">
           <td><div class="cell-main"><div class="avatar ${h.active ? (wl ? 'wlan' : 'lan') : ''}">${ic(deviceIcon(h))}</div>
-            <div style="min-width:0"><div class="t">${esc(h.name || h.mac || 'Unbekannt')}${isNew(h) ? ` <span class="badge accent" title="Erstmals erkannt ${fmtDateTime(h.new_since)}">Neu</span>` : ''}${h.guest ? ' <span class="badge">Gast</span>' : ''}${h.wan_blocked ? ' <span class="badge err">Gesperrt</span>' : ''}</div>
+            <div style="min-width:0"><div class="t">${esc(h.name || h.mac || 'Unbekannt')}${webBadges(h.web)}${isNew(h) ? ` <span class="badge accent" title="Erstmals erkannt ${fmtDateTime(h.new_since)}">Neu</span>` : ''}${h.guest ? ' <span class="badge">Gast</span>' : ''}${h.wan_blocked ? ' <span class="badge err">Gesperrt</span>' : ''}</div>
             <div class="faint" style="font-size:12px">${h.active ? '<span class="dot ok" style="width:6px;height:6px;box-shadow:none;margin-right:5px;vertical-align:1px"></span>Online' : 'Offline'}${h.model ? ` · ${esc(h.model)}` : ''}</div></div></div></td>
           <td class="mono nowrap">${esc(h.ip || '–')}</td>
           <td class="mono nowrap hide-md">${esc(h.mac || '–')}</td>
@@ -762,6 +774,27 @@
     };
     draw();
     $('#reloadBtn').addEventListener('click', (e) => withBusy(e.currentTarget, async () => { try { await load(true); draw(); } catch (err) { toast(err.message, 'err'); } }));
+    const showScanState = (st) => {
+      const sub = $('#devSub');
+      if (!sub || stale(token)) return;
+      sub.textContent = st.running ? 'Suche nach Weboberflächen läuft …'
+        : st.last ? `Alle bekannten Geräte im Heimnetz · Weboberflächen geprüft ${fmtAgo(st.last)}` : 'Alle bekannten Geräte im Heimnetz';
+    };
+    api('webscan').then(showScanState).catch(() => {});
+    $('#webScanBtn').addEventListener('click', (e) => withBusy(e.currentTarget, async () => {
+      try {
+        let st = await api('webscan', { method: 'POST' });
+        showScanState(st);
+        for (let i = 0; i < 90 && st.running; i += 1) {
+          await new Promise((r) => setTimeout(r, 2000));
+          st = await api('webscan');
+        }
+        showScanState(st);
+        await load(true); keepScroll(draw);
+        const n = (S.hosts || []).filter((h) => h.active && (h.web || []).length).length;
+        toast(`${n} ${n === 1 ? 'Gerät hat' : 'Geräte haben'} eine Weboberfläche.`, 'info');
+      } catch (err) { toast(err.message, 'err'); }
+    }));
     const timer = setInterval(async () => { if (document.activeElement && document.activeElement.id === 'q') return; try { await load(); keepScroll(draw); } catch { /* ignore */ } }, 30000);
     S.cleanup.push(() => clearInterval(timer));
   }
@@ -996,7 +1029,7 @@
             ${st ? `<dt>Endgeräte</dt><dd>${st.total} (${st.wlan} WLAN, ${st.lan} LAN)</dd>` : ''}
             ${st && st.weak ? `<dt>Schwaches Signal</dt><dd style="color:var(--err)">${st.weak} Geräte</dd>` : ''}
           </dl>
-          ${n.ip ? `<a class="btn sm" style="margin-top:14px;width:100%" href="http://${esc(n.ip)}" target="_blank" rel="noopener">${ic('external')}Oberfläche öffnen</a>` : ''}</div>
+          ${(n.web || []).length ? webButtons(n.web) : n.ip ? `<a class="btn sm" style="margin-top:14px;width:100%" href="http://${esc(n.ip)}" target="_blank" rel="noopener">${ic('external')}Oberfläche öffnen</a>` : ''}</div>
           ${uplinks ? `<div class="list-group">Mesh-Verbindungen</div><div class="list">${uplinks}</div>` : ''}
           ${groups || '<div class="card-body faint">Keine Endgeräte verbunden.</div>'}`;
       } else {
@@ -1010,6 +1043,7 @@
             ${link ? `<dt>Verbindung</dt><dd>${esc(linkLabel(link))}</dd>` : ''}
             ${n.signal != null ? `<dt>Signal</dt><dd><span class="row" style="gap:6px;justify-content:flex-end">${signalBars(n.signal)}</span></dd>` : ''}
           </dl>
+          ${webButtons(n.web)}
           ${ap ? `<button class="btn sm" style="margin-top:14px;width:100%" data-client="${esc(ap.id)}">${ic(/repeater/i.test(ap.model || '') ? 'repeater' : 'router')}Zu ${esc(ap.name)}</button>` : ''}</div>`;
       }
       $('#detail').innerHTML = `<div class="card topo-detail">

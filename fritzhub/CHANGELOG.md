@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.0
+
+- Neu: **Weboberflächen erkennen** – FritzHub prüft alle Geräte auf eine lokale Weboberfläche (Ports 80, 443, 8080, 8443, 5000, 5001, 8123, 8000, 8081, 8888; nur echte HTML-Seiten bzw. Anmeldeseiten zählen). Geräte bekommen ein „Web“-Kennzeichen, das die Oberfläche mit einem Klick in einem neuen Fenster öffnet; Filter „Weboberfläche“, Button „Weboberflächen suchen“, Links auch in der Mesh-Topologie. Geprüft wird beim Start, alle 30 Minuten und sofort bei neuen Geräten.
+
 ## 1.6.0
 
 - Neu: **Alarm bei neuen Geräten** – Meldung in Home Assistant, optional Push aufs Handy (`notify.…`) und Ereignis `fritzhub_new_device` für Automationen; auf der neuen Seite „Einstellungen“ ein-/ausschaltbar, mit Liste der zuletzt erkannten Geräte; „Neu“-Kennzeichen und Filter in der Geräteliste

@@ -231,6 +231,22 @@ async def host_wol(request: web.Request) -> web.Response:
     return _ok()
 
 
+@routes.get("/api/webscan")
+async def webscan_status(request: web.Request) -> web.Response:
+    hub = _hub(request)
+    return _ok({"running": hub.webscan_running, "last": hub.last_webscan or None,
+                "devices": len(hub.web_uis)})
+
+
+@routes.post("/api/webscan")
+async def webscan_start(request: web.Request) -> web.Response:
+    hub = _hub(request)
+    if not hub._hosts_cache:
+        await hub.hosts()
+    hub.start_webscan()
+    return _ok({"running": hub.webscan_running, "last": hub.last_webscan or None})
+
+
 @routes.post("/api/hosts/rename")
 async def host_rename(request: web.Request) -> web.Response:
     hub = _hub(request)
@@ -696,11 +712,12 @@ def create_app(options: Options) -> web.Application:
     app = web.Application(middlewares=[guard], client_max_size=1024**3)
     app["options"] = options
     if os.environ.get("FRITZHUB_DEMO") == "1":
-        from .demo import DemoBox, DemoNas, demo_discover, demo_store, seed_demo_stats
+        from .demo import DemoBox, DemoNas, demo_discover, demo_store, demo_webscan, seed_demo_stats
 
         _LOGGER.warning("Demo mode – showing synthetic data")
         hub = Hub(options, store=demo_store(), box_cls=DemoBox, nas_cls=DemoNas)
         seed_demo_stats(hub)
+        hub.webscan_fn = demo_webscan
         app["discover"] = demo_discover
         app["test_box"] = lambda cfg, _verify: {"model": "FRITZ!Repeater 1200 AX", "firmware": "7.58", "user": cfg.username or "fritz1234"}
         app["usernames"] = lambda host, _port, _tls: ["fritz1234"] if host != "192.168.178.1" else ["homeassistant"]
