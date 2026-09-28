@@ -89,6 +89,7 @@
     gamepad: '<rect x="2" y="6" width="20" height="12" rx="4"/><path d="M6 12h4M8 10v4M15 11h.01M18 13h.01"/>',
     server: '<rect x="3" y="3" width="18" height="8" rx="2"/><rect x="3" y="13" width="18" height="8" rx="2"/><path d="M7 7h.01M7 17h.01"/>',
     home: '<path d="m3 11 9-8 9 8"/><path d="M5 9.5V20h14V9.5"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
     bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   };
   const ic = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[name] || ''}</svg>`;
@@ -333,8 +334,7 @@
     { id: 'tam', title: 'Anrufbeantworter', icon: 'voicemail' },
     { id: 'nas', title: 'FRITZ!NAS', icon: 'folder', section: 'Speicher' },
     { id: 'system', title: 'System', icon: 'sliders', section: 'Verwaltung' },
-    { id: 'settings', title: 'Einstellungen', icon: 'bell' },
-    { id: 'boxes', title: 'Boxen & Zugänge', icon: 'router' },
+    { id: 'settings', title: 'Einstellungen', icon: 'gear' },
   ];
 
   function renderNav() {
@@ -377,6 +377,9 @@
     S.cleanup.forEach((fn) => { try { fn(); } catch { /* ignore */ } });
     S.cleanup = [];
     renderToken += 1;
+    // old links (#/boxes?scan=1 …) now live in the settings
+    const legacy = /^#\/?boxes(?:\?(.*))?$/.exec(location.hash);
+    if (legacy) history.replaceState(null, '', `#/settings?tab=boxes${legacy[1] ? `&${legacy[1]}` : ''}`);
     const page = currentPage();
     renderNav();
     $('#app').classList.remove('nav-open');
@@ -388,7 +391,7 @@
       content.innerHTML = loading();
       try { await loadOverview(); } catch (e) { content.innerHTML = errorBox(e.message); return; }
     }
-    if (!boxes().length && page !== 'boxes') { renderWelcome(); return; }
+    if (!boxes().length && page !== 'settings') { renderWelcome(); return; }
     const fn = RENDER[page];
     try { await fn(content, renderToken); } catch (e) { content.innerHTML = errorBox(e.message); }
   }
@@ -413,8 +416,8 @@
       </div>
       <div style="text-align:center;padding:0 20px 28px" class="row wrap" >
         <div style="margin:0 auto" class="row wrap">
-          <a class="btn primary" href="#/boxes?scan=1">${ic('radar')}Netzwerk durchsuchen</a>
-          <a class="btn" href="#/boxes?add=1">${ic('plus')}Manuell hinzufügen</a>
+          <a class="btn primary" href="#/settings?tab=boxes&scan=1">${ic('radar')}Netzwerk durchsuchen</a>
+          <a class="btn" href="#/settings?tab=boxes&add=1">${ic('plus')}Manuell hinzufügen</a>
         </div>
       </div>
     </div>`;
@@ -1787,8 +1790,21 @@
   }
 
   // --------------------------------------------------------------- settings
+  // Settings page with tabs: devices/credentials and notifications
   async function renderSettings(el, token) {
-    setHeader('Einstellungen', 'Benachrichtigungen und Überwachung');
+    const q = new URLSearchParams(location.hash.split('?')[1] || '');
+    let tab = q.get('tab') || store.get('settingsTab', 'boxes');
+    if (!['boxes', 'notify'].includes(tab)) tab = 'boxes';
+    store.set('settingsTab', tab);
+    el.innerHTML = `<div class="seg" id="setTabs" style="margin-bottom:16px">${[['boxes', 'router', 'Boxen & Zugänge'], ['notify', 'bell', 'Benachrichtigungen']]
+      .map(([k, icon, label]) => `<button data-tab="${k}" class="${tab === k ? 'active' : ''}">${ic(icon)}${label}</button>`).join('')}</div><div id="setBody"></div>`;
+    $$('#setTabs button').forEach((b) => b.addEventListener('click', () => { if (b.dataset.tab !== tab) location.hash = `#/settings?tab=${b.dataset.tab}`; }));
+    const body = $('#setBody');
+    if (tab === 'boxes') await renderBoxes(body); else await renderNotifications(body, token);
+  }
+
+  async function renderNotifications(el, token) {
+    setHeader('Einstellungen', 'Benachrichtigungen bei neuen Geräten');
     el.innerHTML = loading(4);
     let data;
     try { data = await api('settings'); } catch (e) { el.innerHTML = errorBox(e.message); return; }
@@ -1844,7 +1860,7 @@ actions:
   // ------------------------------------------------------------------ boxes
   let discovered = null;
   async function renderBoxes(el) {
-    setHeader('Boxen & Zugänge', 'FRITZ!Box und FRITZ!Repeater verwalten', `<button class="btn" id="addBtn">${ic('plus')}<span class="hide-sm">Manuell hinzufügen</span></button><button class="btn primary" id="scanBtn">${ic('radar')}Netzwerk durchsuchen</button>`);
+    setHeader('Einstellungen', 'FRITZ!Box und FRITZ!Repeater verwalten', `<button class="btn" id="addBtn">${ic('plus')}<span class="hide-sm">Manuell hinzufügen</span></button><button class="btn primary" id="scanBtn">${ic('radar')}Netzwerk durchsuchen</button>`);
     const draw = () => {
       const list = boxes();
       const cfgRows = list.map((b) => `<div class="list-item">
@@ -1969,13 +1985,13 @@ actions:
     $('#addBtn').addEventListener('click', () => boxForm());
     draw();
     const q = location.hash.split('?')[1] || '';
-    if (q.includes('scan=1')) { history.replaceState(null, '', '#/boxes'); scan($('#scanBtn')); }
-    if (q.includes('add=1')) { history.replaceState(null, '', '#/boxes'); boxForm(); }
+    if (q.includes('scan=1')) { history.replaceState(null, '', '#/settings?tab=boxes'); scan($('#scanBtn')); }
+    if (q.includes('add=1')) { history.replaceState(null, '', '#/settings?tab=boxes'); boxForm(); }
   }
 
   const RENDER = {
     dashboard: renderDashboard, devices: renderDevices, topology: renderTopology, wlan: renderWlan,
-    calls: renderCalls, tam: renderTam, nas: renderNas, system: renderSystem, settings: renderSettings, boxes: renderBoxes,
+    calls: renderCalls, tam: renderTam, nas: renderNas, system: renderSystem, settings: renderSettings,
   };
 
   // ------------------------------------------------------------------ theme

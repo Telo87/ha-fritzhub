@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.2
+
+- „Boxen & Zugänge“ ist jetzt ein Reiter unter „Einstellungen“ (neben „Benachrichtigungen“); alte Links führen automatisch dorthin
+
 ## 1.7.1
 
 - Geräteliste: Aktionen (Umbenennen, Wake on LAN) bleiben am rechten Rand sichtbar, auch wenn die Tabelle breiter als der Bildschirm ist; Spalte „Rate“ wird schon unter 1400 px ausgeblendet
