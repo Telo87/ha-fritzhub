@@ -417,6 +417,28 @@ svg.spark.ok path { stroke: var(--ok); } svg.spark.warn path { stroke: var(--war
 svg.spark.rate path { stroke: var(--accent); }
 .t-link.wlan.q-ok { stroke: var(--ok); } .t-link.wlan.q-warn { stroke: var(--warn); } .t-link.wlan.q-err { stroke: var(--err); }
 
+/* Device details */
+.modal.device-detail { max-width: 860px; }
+.dd-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 24px; }
+@media (max-width: 760px) { .dd-grid { grid-template-columns: 1fr; } }
+.dd-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13px; margin-bottom: 6px; }
+.avail { display: flex; height: 22px; border-radius: 6px; overflow: hidden; background: var(--surface-3); }
+.avail i { display: block; height: 100%; }
+.avail i.on { background: var(--ok); } .avail i.off { background: var(--err); opacity: .75; }
+.avail i.unk { background: repeating-linear-gradient(45deg, var(--surface-3) 0 6px, var(--border) 6px 8px); }
+.avail-axis { display: grid; grid-template-columns: repeat(7, 1fr); font-size: 11px; color: var(--text-3); text-align: center; margin-top: 4px; }
+svg.spark.big { height: 90px; }
+.cell-main.clickable { cursor: pointer; }
+.cell-main.clickable:hover .t { color: var(--accent); }
+.icon-btn.watch-on { color: var(--accent); background: var(--accent-soft); }
+/* Network check */
+.nc-head { display: flex; align-items: center; gap: 16px; padding: 18px 20px; }
+.nc-item { margin-top: 16px; border-left: 4px solid var(--accent); }
+.nc-item.warn { border-left-color: var(--warn); } .nc-item.err { border-left-color: var(--err); }
+.nc-list { margin: 0; padding-left: 18px; font-size: 13.5px; display: flex; flex-direction: column; gap: 4px; }
+.nc-ok { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px 16px; font-size: 13.5px; }
+.nc-ok li { display: flex; gap: 8px; align-items: center; } .nc-ok svg { color: var(--ok); }
+
 /* WLAN signal bars */
 .sig { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; vertical-align: middle; }
 .sig i { width: 4px; border-radius: 1.5px; background: var(--border-strong); }

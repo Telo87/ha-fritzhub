@@ -222,6 +222,34 @@ async def topology(request: web.Request) -> web.Response:
     return _ok(await _hub(request).topology(force))
 
 
+@routes.get("/api/devices/{mac}/history")
+async def device_history(request: web.Request) -> web.Response:
+    hub = _hub(request)
+    mac = request.match_info["mac"].upper()
+    return _ok(await asyncio.to_thread(hub.devlog.history, mac))
+
+
+@routes.post("/api/watch")
+async def device_watch(request: web.Request) -> web.Response:
+    hub = _hub(request)
+    data = await _json(request)
+    mac = str(data.get("mac") or "").upper()
+    if not mac:
+        raise web.HTTPBadRequest(text="MAC-Adresse fehlt.")
+    watched = set(hub.settings.get("watched_devices") or [])
+    (watched.add if data.get("watched") else watched.discard)(mac)
+    await asyncio.to_thread(hub.settings.update, {"watched_devices": sorted(watched)})
+    return _ok({"watched": sorted(watched)})
+
+
+@routes.get("/api/netcheck")
+async def netcheck(request: web.Request) -> web.Response:
+    hub = _hub(request)
+    if not hub._hosts_cache:
+        await hub.hosts()
+    return _ok(hub.netcheck())
+
+
 @routes.get("/api/webscan")
 async def webscan_status(request: web.Request) -> web.Response:
     hub = _hub(request)
@@ -579,8 +607,15 @@ def _settings_payload(hub: Hub) -> dict[str, Any]:
     for entry in hub.stats.new_devices:
         vendor = vendors.lookup(entry.get("mac")) or {}
         devices.append({**entry, "vendor": vendor.get("vendor"), "private": vendor.get("private", False)})
+    hosts = {h["mac"]: h for h in (hub._hosts_cache[1] if hub._hosts_cache else [])}
+    watched = [
+        {"mac": mac, "name": (hosts.get(mac) or {}).get("name"), "active": (hosts.get(mac) or {}).get("active"),
+         "ip": (hosts.get(mac) or {}).get("ip"), "last_seen": (hub.stats.seen(mac) or {}).get("last")}
+        for mac in hub.settings.get("watched_devices") or []
+    ]
     return {
         "settings": dict(hub.settings.data),
+        "watched": watched,
         "new_devices": devices,
         "ha_available": hub.publisher.available,
         "tracking_since": hub.stats.since,
@@ -703,11 +738,12 @@ def create_app(options: Options) -> web.Application:
     app = web.Application(middlewares=[guard], client_max_size=1024**3)
     app["options"] = options
     if os.environ.get("FRITZHUB_DEMO") == "1":
-        from .demo import DemoBox, DemoNas, demo_discover, demo_store, demo_webscan, seed_demo_stats
+        from .demo import DemoBox, DemoNas, demo_discover, demo_store, demo_webscan, seed_demo_devices, seed_demo_stats
 
         _LOGGER.warning("Demo mode – showing synthetic data")
         hub = Hub(options, store=demo_store(), box_cls=DemoBox, nas_cls=DemoNas)
         seed_demo_stats(hub)
+        seed_demo_devices(hub)
         hub.webscan_fn = demo_webscan
         app["discover"] = demo_discover
         app["test_box"] = lambda cfg, _verify: {"model": "FRITZ!Repeater 1200 AX", "firmware": "7.58", "user": cfg.username or "fritz1234"}

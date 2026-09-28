@@ -145,6 +145,8 @@ DEFAULT_SETTINGS: dict = {
     "new_device_alarm": True,  # notify when an unknown device joins the network
     "notify_persistent": True,  # show a notification in Home Assistant
     "notify_service": "",  # optional push, e.g. "notify.mobile_app_iphone"
+    "watch_alarm": True,  # notify when a watched device goes offline / comes back
+    "watched_devices": [],  # MAC addresses
 }
 
 
@@ -164,7 +166,8 @@ class Settings:
             _LOGGER.warning("Could not read %s: %s", self._path, err)
 
     def get(self, key: str):
-        return self.data.get(key, DEFAULT_SETTINGS.get(key))
+        value = self.data.get(key, DEFAULT_SETTINGS.get(key))
+        return list(value) if isinstance(value, list) else value
 
     def update(self, values: dict) -> dict:
         with self._lock:
@@ -172,7 +175,12 @@ class Settings:
                 if key not in DEFAULT_SETTINGS:
                     continue
                 default = DEFAULT_SETTINGS[key]
-                self.data[key] = bool(value) if isinstance(default, bool) else str(value or "").strip()
+                if isinstance(default, bool):
+                    self.data[key] = bool(value)
+                elif isinstance(default, list):
+                    self.data[key] = sorted({str(v).upper() for v in (value or []) if v})
+                else:
+                    self.data[key] = str(value or "").strip()
             self._path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self._path.with_suffix(".tmp")
             tmp.write_text(json.dumps(self.data, indent=2), encoding="utf-8")

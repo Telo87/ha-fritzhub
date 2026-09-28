@@ -394,6 +394,7 @@
     { id: 'devices', title: 'Geräte', icon: 'devices' },
     { id: 'topology', title: 'Mesh-Topologie', icon: 'topology' },
     { id: 'wlan', title: 'WLAN', icon: 'wifi' },
+    { id: 'netcheck', title: 'Netzwerk-Check', icon: 'checkCircle' },
     { id: 'calls', title: 'Anrufe', icon: 'phone', section: 'Telefonie' },
     { id: 'tam', title: 'Anrufbeantworter', icon: 'voicemail' },
     { id: 'nas', title: 'FRITZ!NAS', icon: 'folder', section: 'Speicher' },
@@ -738,6 +739,7 @@
       lan: ['LAN', (h) => h.active && !isWlan(h)],
       guest: ['Gäste', (h) => h.guest],
       web: ['Weboberfläche', (h) => h.active && (h.web || []).length > 0],
+      watched: ['Beobachtet', (h) => h.watched],
       new: ['Neu', (h) => isNew(h)],
       stale: ['Lange offline', (h) => isStale(h)],
       weak: ['Schwaches WLAN', (h) => h.active && h.signal != null && h.signal < WEAK_SIGNAL],
@@ -770,8 +772,8 @@
         const rate = h.active ? (h.wlan_speed ? fmtBits(h.wlan_speed * 1e6) : h.link_rate ? fmtKbit(h.link_rate) : h.speed ? fmtBits(h.speed * 1e6) : '–') : '–';
         const canBlock = h.ip && h.wan_blocked !== null && h.wan_blocked !== undefined;
         return `<tr class="${h.active ? '' : 'offline'}">
-          <td><div class="cell-main"><div class="avatar ${h.active ? (wl ? 'wlan' : 'lan') : ''}">${ic(deviceIcon(h))}</div>
-            <div style="min-width:0"><div class="t">${esc(h.name || h.mac || 'Unbekannt')}${webBadges(h.web)}${isNew(h) ? ` <span class="badge accent" title="Erstmals erkannt ${fmtDateTime(h.new_since)}">Neu</span>` : ''}${h.guest ? ' <span class="badge">Gast</span>' : ''}${h.wan_blocked ? ' <span class="badge err">Gesperrt</span>' : ''}</div>
+          <td><div class="cell-main clickable" data-detail="${esc(h.mac)}" title="Details anzeigen"><div class="avatar ${h.active ? (wl ? 'wlan' : 'lan') : ''}">${ic(deviceIcon(h))}</div>
+            <div style="min-width:0"><div class="t">${esc(h.name || h.mac || 'Unbekannt')}${webBadges(h.web)}${h.roams_24h >= PINGPONG ? ` <span class="badge warn" title="${h.roams_24h} Wechsel zwischen Zugangspunkten in 24 Stunden">springt</span>` : ''}${isNew(h) ? ` <span class="badge accent" title="Erstmals erkannt ${fmtDateTime(h.new_since)}">Neu</span>` : ''}${h.guest ? ' <span class="badge">Gast</span>' : ''}${h.wan_blocked ? ' <span class="badge err">Gesperrt</span>' : ''}</div>
             <div class="faint" style="font-size:12px">${h.active ? '<span class="dot ok" style="width:6px;height:6px;box-shadow:none;margin-right:5px;vertical-align:1px"></span>Online' : 'Offline'}${h.model ? ` · ${esc(h.model)}` : ''}</div></div></div></td>
           <td class="mono nowrap">${esc(h.ip || '–')}</td>
           <td class="mono nowrap hide-md">${esc(h.mac || '–')}</td>
@@ -786,7 +788,7 @@
             : h.last_seen ? `<span class="${isStale(h) ? 'stale' : ''}">${fmtAgo(h.last_seen)}</span>`
               : `<span class="faint" title="FritzHub zeichnet seit ${fmtDateTime(S.overview.tracking_since)} auf">vor ${new Date(S.overview.tracking_since * 1000).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}</span>`}</td>
           <td class="nowrap">${canBlock ? `<label class="row" style="gap:8px" title="Internetzugang erlauben">${sw(!h.wan_blocked, `data-wan="${esc(h.ip)}"`)}</label>` : '<span class="faint">–</span>'}</td>
-          <td class="sticky-end"><div class="actions">${h.mac ? `<button class="icon-btn" title="Umbenennen" data-rename-host="${esc(h.mac)}">${ic('edit')}</button>` : ''}</div></td>
+          <td class="sticky-end"><div class="actions">${h.mac ? `<button class="icon-btn ${h.watched ? 'watch-on' : ''}" title="${h.watched ? 'Wird beobachtet – klicken zum Beenden' : 'Beobachten: Meldung, wenn das Gerät offline geht'}" data-watch="${esc(h.mac)}">${ic('bell')}</button><button class="icon-btn" title="Umbenennen" data-rename-host="${esc(h.mac)}">${ic('edit')}</button>` : ''}</div></td>
         </tr>`;
       }).join('');
       el.innerHTML = `<div class="toolbar">
@@ -801,6 +803,19 @@
       qi.addEventListener('input', () => { f.q = qi.value; store.set('devFilter', f); const pos = qi.selectionStart; draw(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); });
       $$('#kinds button').forEach((b) => b.addEventListener('click', () => { f.kind = b.dataset.kind; store.set('devFilter', f); draw(); }));
       $$('th[data-sort]').forEach((t) => t.addEventListener('click', () => { if (f.sort === t.dataset.sort) f.dir *= -1; else { f.sort = t.dataset.sort; f.dir = 1; } store.set('devFilter', f); draw(); }));
+      $$('[data-detail]').forEach((c) => c.addEventListener('click', (e) => {
+        if (e.target.closest('a, button, [data-stop]')) return;
+        openDeviceDetail(c.dataset.detail, draw);
+      }));
+      $$('[data-watch]').forEach((b) => b.addEventListener('click', async () => {
+        const h = S.hosts.find((x) => x.mac === b.dataset.watch);
+        if (!h) return;
+        try {
+          await setWatched(h, !h.watched);
+          toast(h.watched ? `${h.name || h.mac} wird beobachtet.` : `Beobachtung von ${h.name || h.mac} beendet.`);
+          draw();
+        } catch (e) { toast(e.message, 'err'); }
+      }));
       $$('[data-rename-host]').forEach((b) => b.addEventListener('click', () => {
         const h = S.hosts.find((x) => x.mac === b.dataset.renameHost);
         if (!h) return;
@@ -1304,6 +1319,180 @@
           <p class="muted" style="font-size:12.5px;margin:10px 0 0">Ändern in der Oberfläche der jeweiligen Box unter <b>WLAN › Funkkanal</b>: „Funkkanal-Einstellungen anpassen“, 2,4-GHz-Kanal festlegen.${allAuto ? ' Aktuell wählen alle Boxen ihren Kanal per <b>Autokanal</b> selbst – die Box berücksichtigt dabei auch Nachbar-WLANs, die FritzHub nicht sieht. Ein fester Kanal lohnt sich vor allem, wenn es spürbare Probleme gibt.' : ''}</p></div>` : ''}
         ${r.five.length ? `<p class="muted" style="font-size:12.5px;margin:14px 0 0"><b>5 GHz:</b> ${r.five.map((a) => `${esc(a.name)} ${a.ch}`).join(' · ')}.${r.fiveShared.length ? ' Einige Geräte teilen sich einen 80-MHz-Kanalblock – bei Repeatern mit WLAN-Anbindung ist das so gewollt, weil sie auf dem Kanal des Mesh Masters verbunden sind.' : ''}</p>` : ''}
       </div></div>`;
+  }
+
+  // Device details -------------------------------------------------------------
+  const PINGPONG = 6;  // roams per 24 h (same threshold as the backend)
+  async function setWatched(h, watched) {
+    await api('watch', { method: 'POST', body: { mac: h.mac, watched } });
+    h.watched = watched;
+  }
+
+  // availability timeline from on/off events: [[start, end, state]] within the window
+  function availability(events, active, windowStart, now, trackingSince) {
+    const ev = events.filter((e) => e[1] === 'on' || e[1] === 'off').sort((a, b) => a[0] - b[0]);
+    const before = ev.filter((e) => e[0] < windowStart);
+    let state;
+    if (before.length) state = before[before.length - 1][1] === 'on';
+    else {
+      const first = ev.find((e) => e[0] >= windowStart);
+      state = first ? first[1] === 'off' : !!active;
+    }
+    const start = Math.max(windowStart, trackingSince || windowStart);
+    const segs = [];
+    if (start > windowStart) segs.push([windowStart, start, null]);
+    let t = start;
+    ev.filter((e) => e[0] >= start).forEach((e) => {
+      const next = e[1] === 'on';
+      if (next !== state) { segs.push([t, e[0], state]); t = e[0]; state = next; }
+    });
+    segs.push([t, now, state]);
+    return segs.filter((sg) => sg[1] > sg[0]);
+  }
+
+  function eventText(e) {
+    if (e[1] === 'roam') return [`Wechsel ${esc(e[2])} → <b>${esc(e[3])}</b>${e[4] ? ` <span class="faint">(${esc(e[4])})</span>` : ''}`, 'repeater', ''];
+    if (e[1] === 'band') return [`Bandwechsel ${esc(e[2])} → <b>${esc(e[3])}</b>${e[4] ? ` <span class="faint">an ${esc(e[4])}</span>` : ''}`, 'wifi', ''];
+    if (e[1] === 'on') return [`Online${e[2] ? ` <span class="faint">über ${esc(e[2])}</span>` : ''}`, 'checkCircle', 'ok'];
+    return ['Offline', 'power', 'err'];
+  }
+
+  async function openDeviceDetail(mac, redraw) {
+    const h = (S.hosts || []).find((x) => x.mac === mac) || { mac };
+    let hist;
+    try { hist = await api(`devices/${encodeURIComponent(mac)}/history`); } catch (e) { toast(e.message, 'err'); return; }
+    const now = Date.now() / 1000; const weekStart = now - 7 * 86400;
+    // recording starts with the first known event or sighting of the device
+    const firstEvent = hist.events.length ? Math.min(...hist.events.map((e) => e[0])) : Infinity;
+    const since = Math.min(h.first_seen || Infinity, firstEvent, now);
+    const segs = availability(hist.events, h.active, weekStart, now, since || weekStart);
+    const known = segs.filter((sg) => sg[2] !== null);
+    const knownTime = known.reduce((n, sg) => n + sg[1] - sg[0], 0);
+    const onTime = known.filter((sg) => sg[2]).reduce((n, sg) => n + sg[1] - sg[0], 0);
+    const outages = hist.events.filter((e) => e[1] === 'off' && e[0] >= weekStart).length;
+    const bar = segs.map((sg) => `<i class="${sg[2] === null ? 'unk' : sg[2] ? 'on' : 'off'}" style="width:${((sg[1] - sg[0]) / (now - weekStart)) * 100}%" title="${sg[2] === null ? 'Noch nicht aufgezeichnet' : sg[2] ? 'Online' : 'Offline'}: ${fmtDateTime(sg[0])} – ${fmtDateTime(sg[1])}"></i>`).join('');
+    const days = Array.from({ length: 7 }, (_, i) => new Date((weekStart + (i + 0.5) * 86400) * 1000).toLocaleDateString('de-DE', { weekday: 'short' }));
+    // hourly averages – 10-minute values over 3 days are too noisy to read
+    const hourly = {};
+    (hist.signal || []).forEach(([t, v]) => { const k = Math.floor(t / 3600) * 3600; (hourly[k] = hourly[k] || []).push(v); });
+    const sig = Object.entries(hourly).map(([t, v]) => [Number(t), Math.round(v.reduce((a, b) => a + b, 0) / v.length)]).sort((a, b) => a[0] - b[0]);
+    const sigVals = sig.map((x) => x[1]);
+    const sigAvg = sigVals.length ? Math.round(sigVals.reduce((a, b) => a + b, 0) / sigVals.length) : null;
+    const recent = [...hist.events].reverse().slice(0, 40);
+    const wl = isWlan(h) || !!hist.band;
+    const vendor = h.private ? 'Private MAC (zufällig)' : h.vendor;
+    modal({
+      title: h.name || mac,
+      wide: true,
+      cls: 'device-detail',
+      body: `<div class="dd-grid">
+        <div><dl class="kv">
+          <dt>Status</dt><dd>${h.active ? '<span style="color:var(--ok)">● Online</span>' : `<span class="faint">● Offline</span>${h.last_seen ? ` <span class="faint">seit ${fmtAgo(h.last_seen)}</span>` : ''}`}</dd>
+          ${h.ip ? `<dt>IP</dt><dd class="mono">${esc(h.ip)}</dd>` : ''}
+          <dt>MAC</dt><dd class="mono">${esc(mac)}</dd>
+          ${vendor ? `<dt>Hersteller</dt><dd>${esc(vendor)}</dd>` : ''}
+          ${h.active && (hist.ap || h.connected_to) ? `<dt>Verbunden über</dt><dd>${esc(hist.ap || h.connected_to)}${hist.band || h.band ? ` · ${esc(hist.band || h.band)}` : wl ? '' : ' · LAN'}</dd>` : ''}
+          ${h.active && h.signal != null ? `<dt>Signal</dt><dd><span class="row" style="gap:6px;justify-content:flex-end">${signalBars(h.signal)}</span></dd>` : ''}
+          ${h.first_seen ? `<dt>Erstmals gesehen</dt><dd>${fmtDateTime(h.first_seen)}</dd>` : ''}
+        </dl>
+        <div class="row wrap" style="gap:8px;margin-top:14px">
+          <button class="btn sm ${h.watched ? 'primary' : ''}" id="ddWatch">${ic('bell')}${h.watched ? 'Wird beobachtet' : 'Beobachten'}</button>
+          ${(h.web || []).map((w) => `<a class="btn sm" href="${esc(w.url)}" target="_blank" rel="noopener noreferrer">${ic('globe')}Weboberfläche</a>`).join('')}
+        </div></div>
+        <div>
+          <div class="dd-head"><b>Verfügbarkeit – 7 Tage</b><span class="faint">${knownTime ? `${Math.round((onTime / knownTime) * 100)} % online · ${outages} ${outages === 1 ? 'Ausfall' : 'Ausfälle'}` : ''}</span></div>
+          <div class="avail">${bar}</div>
+          <div class="avail-axis">${days.map((d) => `<span>${d}</span>`).join('')}</div>
+          ${wl ? `<div class="dd-head" style="margin-top:18px"><b>Signalstärke – 3 Tage</b><span class="faint">${sigAvg != null ? `Ø ${sigAvg} % · min. ${Math.min(...sigVals)} %` : ''}</span></div>
+          ${sig.length > 1 ? sparkline(sig.map((x) => [x[0], x[1]]), 1, `${signalClass(sigAvg)} big`) : '<div class="faint" style="font-size:12.5px">Noch keine Signalwerte aufgezeichnet.</div>'}` : ''}
+        </div>
+      </div>
+      ${hist.pingpong ? `<div class="notice" style="margin-top:16px">${ic('alert')}<div><b>Springt häufig zwischen Zugangspunkten</b> – ${hist.roams_24h} Wechsel in 24 Stunden. Das passiert, wenn ein Gerät etwa gleich weit von zwei Repeatern entfernt ist, und führt zu kurzen Aussetzern. Abhilfe: das Gerät oder einen Repeater etwas versetzen, sodass ein Zugangspunkt klar stärker ist.</div></div>` : ''}
+      <div class="dd-head" style="margin-top:18px"><b>Ereignisse</b><span class="faint">${hist.roams_24h} ${hist.roams_24h === 1 ? 'Wechsel' : 'Wechsel'} in 24 Std</span></div>
+      <div class="card"><div class="list">${recent.map((e) => {
+        const [text, icon, cls] = eventText(e);
+        return `<div class="list-item" style="padding:8px 14px"><div class="avatar ${cls}" style="width:28px;height:28px">${ic(icon)}</div><div class="grow" style="font-size:13px">${text}</div><span class="faint nowrap" style="font-size:12px" title="${fmtDateTime(e[0])}">${fmtAgo(e[0])}</span></div>`;
+      }).join('') || '<div class="muted" style="padding:12px 14px;font-size:13px">Noch keine Ereignisse aufgezeichnet – FritzHub protokolliert ab jetzt jeden Wechsel.</div>'}</div></div>`,
+      onMount(m) {
+        m.querySelector('#ddWatch').addEventListener('click', (e) => withBusy(e.currentTarget, async () => {
+          try {
+            await setWatched(h, !h.watched);
+            const b = m.querySelector('#ddWatch');
+            b.classList.toggle('primary', h.watched);
+            b.innerHTML = `${ic('bell')}${h.watched ? 'Wird beobachtet' : 'Beobachten'}`;
+            toast(h.watched ? 'Gerät wird beobachtet.' : 'Beobachtung beendet.');
+            if (redraw) redraw();
+          } catch (err) { toast(err.message, 'err'); }
+        }));
+      },
+    });
+  }
+
+  // Network check ------------------------------------------------------------
+  async function renderNetcheck(el, token) {
+    setHeader('Netzwerk-Check', 'Empfehlungen aus allen Messwerten des Mesh-Netzes', `<button class="btn" id="reloadBtn">${ic('refresh')}<span class="hide-sm">Neu prüfen</span></button>`);
+    el.innerHTML = loading(6);
+    let data;
+    try { [data, S.hosts] = await Promise.all([api('netcheck'), api('hosts')]); } catch (e) { el.innerHTML = errorBox(e.message); return; }
+    if (stale(token)) return;
+    $('#reloadBtn').addEventListener('click', () => navigate());
+
+    const findings = []; const ok = [];
+    const add = (level, title, text, items = [], link = null) => findings.push({ level, title, text, items, link });
+    const list = onlineBoxes();
+
+    // WLAN channels
+    const ch = channelAnalysis(list.filter((b) => (b.wlan || []).length));
+    if (ch.issues.length) add(ch.issues.some((i) => i.level === 'err') ? 'warn' : 'info', 'WLAN-Kanäle überschneiden sich', 'Zugangspunkte im 2,4-GHz-Band stören sich gegenseitig.', ch.issues.map((i) => i.text), ['#/wlan', 'Zur Kanalprüfung']);
+    else if (ch.two.length) ok.push('WLAN-Kanäle ohne Überschneidung');
+
+    // uplinks of repeaters
+    const slowLan = list.filter((b) => lanSlow(b.uplink));
+    if (slowLan.length) add('warn', 'Langsame LAN-Anbindung', `Zwischen FRITZ!-Geräten sind mindestens 1 Gbit/s üblich. ${LAN_CAUSES}`, slowLan.map((b) => `<b>${esc(boxName(b))}</b> mit ${mbit(b.uplink.speed)}${b.uplink.parent ? ` zu ${esc(b.uplink.parent)}` : ''}`), ['#/topology', 'Zur Topologie']);
+    const wlanUp = list.filter((b) => b.uplink && b.uplink.type !== 'lan');
+    const weakUp = wlanUp.filter((b) => b.uplink.signal < 60);
+    if (weakUp.length) add(weakUp.some((b) => b.uplink.signal < WEAK_SIGNAL) ? 'warn' : 'info', 'Schwache WLAN-Anbindung von Repeatern', 'Alle Geräte an diesen Repeatern sind dadurch langsamer. Abhilfe: Repeater näher an die übergeordnete Box stellen oder per LAN anbinden.', weakUp.map((b) => `<b>${esc(boxName(b))}</b>: ${b.uplink.signal} % · ${mbit(b.uplink.speed_tx)}`), ['#/topology', 'Zur Topologie']);
+    if (list.some((b) => b.uplink_known) && !slowLan.length && !weakUp.length) ok.push('Anbindung aller Repeater in Ordnung');
+
+    // load of the access points
+    const loads = data.ap_load || [];
+    if (loads.length >= 2) {
+      const [top, ...rest] = loads;
+      const avgRest = rest.reduce((n, a) => n + a.clients, 0) / rest.length;
+      if (top.clients >= 15 && top.clients > 2 * Math.max(1, avgRest)) {
+        add('info', 'Ein Zugangspunkt trägt die meisten WLAN-Geräte', `<b>${esc(top.ap)}</b> versorgt ${top.clients} von ${loads.reduce((n, a) => n + a.clients, 0)} WLAN-Geräten. Bei vielen gleichzeitig aktiven Geräten teilen sich alle die Sendezeit dieses Zugangspunkts – ein weiterer Repeater in der Nähe oder ein anderer Standort kann entlasten.`, loads.map((a) => `${esc(a.ap)}: ${a.clients} Geräte <span class="faint">(${a['2,4 GHz']} × 2,4 GHz, ${a['5 GHz']} × 5 GHz${a['6 GHz'] ? `, ${a['6 GHz']} × 6 GHz` : ''})</span>`), ['#/topology', 'Zur Topologie']);
+      } else ok.push('WLAN-Geräte gleichmäßig auf die Zugangspunkte verteilt');
+    }
+
+    // devices
+    if (data.weak.length) add('warn', 'Geräte mit dauerhaft schwachem Signal', 'Durchschnitt der letzten 24 Stunden unter 40 %. Solche Geräte verbinden sich langsam und verlieren häufiger die Verbindung – oft hilft ein Repeater in der Nähe oder ein anderer Standort.', data.weak.map((w) => `<b>${esc(w.name)}</b> – Ø ${Math.round(w.avg)} % an ${esc(w.ap)} <span class="faint">(${esc(w.band || '')})</span>`), ['#/devices', 'Zur Geräteliste', 'weak']);
+    else ok.push('Kein Gerät mit dauerhaft schwachem Signal');
+    if (data.roaming.length) add('warn', 'Geräte springen zwischen Zugangspunkten', 'Häufiger Wechsel entsteht, wenn ein Gerät etwa gleich weit von zwei Zugangspunkten entfernt ist, und führt zu kurzen Aussetzern. Abhilfe: Gerät oder Repeater etwas versetzen.', data.roaming.map((r) => `<b>${esc(r.name)}</b> – ${r.roams} Wechsel in 24 Std zwischen ${r.aps.map(esc).join(' und ')}`), ['#/devices', 'Zur Geräteliste']);
+    else ok.push('Kein Gerät springt auffällig zwischen Zugangspunkten');
+    if (data.band_hint.length) add('info', 'Geräte im 2,4-GHz-Netz, die auch 5 GHz können', 'Diese Geräte waren schon im schnelleren 5-GHz-Netz, hängen aber gerade im 2,4-GHz-Netz – meist wegen der Entfernung. Näher am Zugangspunkt wechseln sie von selbst zurück.', data.band_hint.map((b) => `<b>${esc(b.name)}</b> an ${esc(b.ap)}${b.signal != null ? ` <span class="faint">(${b.signal} %)</span>` : ''}`), ['#/devices', 'Zur Geräteliste']);
+    const staleN = (S.hosts || []).filter(isStale).length;
+    if (staleN) add('info', `${staleN} Geräte seit über 30 Tagen offline`, 'Alte Einträge machen die Geräteliste unübersichtlich. In der FRITZ!Box unter Heimnetz › Netzwerk lassen sie sich entfernen.', [], ['#/devices', 'Zur Geräteliste', 'stale']);
+    const updates = list.filter((b) => b.info && b.info.update_available);
+    if (updates.length) add('info', 'FRITZ!OS-Update verfügbar', 'Updates schließen Sicherheitslücken und verbessern oft das Mesh.', updates.map((b) => `<b>${esc(boxName(b))}</b> → FRITZ!OS ${esc(b.info.update_version || '')}`), ['#/system', 'Zum System']);
+    else ok.push('FRITZ!OS auf allen Geräten aktuell');
+
+    const order = { err: 0, warn: 1, info: 2 };
+    findings.sort((a, b) => order[a.level] - order[b.level]);
+    const counts = { warn: findings.filter((f) => f.level !== 'info').length, info: findings.filter((f) => f.level === 'info').length };
+    const since = data.data_since ? new Date(data.data_since * 1000).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' }) : null;
+    const head = counts.warn ? ['warn', 'alert', `${counts.warn} ${counts.warn === 1 ? 'Problem' : 'Probleme'} gefunden`]
+      : counts.info ? ['accent', 'info', `Keine Probleme – ${counts.info} ${counts.info === 1 ? 'Hinweis' : 'Hinweise'}`] : ['ok', 'checkCircle', 'Alles in Ordnung'];
+    el.innerHTML = `<div class="card nc-head"><div class="avatar ${head[0]}" style="width:48px;height:48px">${ic(head[1])}</div>
+        <div class="grow"><div style="font-size:18px;font-weight:700">${head[2]}</div>
+        <div class="muted" style="font-size:13px">${findings.length + ok.length} Prüfungen · Geräte-Auswertungen über die letzten 24 Stunden${since ? ` (Daten seit ${since})` : ''}</div></div></div>
+      ${findings.map((f) => `<div class="card nc-item ${f.level}"><div class="card-head"><div class="avatar ${f.level === 'info' ? 'accent' : f.level}">${ic(f.level === 'info' ? 'info' : 'alert')}</div><h2>${f.title}</h2>${f.link ? `<a class="btn sm ghost" href="${f.link[0]}" ${f.link[2] ? `data-devkind="${f.link[2]}"` : ''}>${f.link[1]} ${ic('chevron')}</a>` : ''}</div>
+        <div class="card-body"><p class="muted" style="margin:0 0 ${f.items.length ? 10 : 0}px;font-size:13.5px">${f.text}</p>
+        ${f.items.length ? `<ul class="nc-list">${f.items.map((i) => `<li>${i}</li>`).join('')}</ul>` : ''}</div></div>`).join('')}
+      ${ok.length ? `<div class="card" style="margin-top:16px"><div class="card-head"><h2>In Ordnung <span class="sub">${ok.length}</span></h2></div><div class="card-body"><ul class="nc-ok">${ok.map((o) => `<li>${ic('check')}${o}</li>`).join('')}</ul></div></div>` : ''}`;
+    // links to the device list open it with the matching filter
+    $$('[data-devkind]').forEach((a) => a.addEventListener('click', () => {
+      store.set('devFilter', { ...store.get('devFilter', { q: '', sort: 'name', dir: 1 }), kind: a.dataset.devkind, q: '' });
+    }));
   }
 
   // ------------------------------------------------------------------ calls
@@ -1915,10 +2104,22 @@ actions:
     data:
       flash: short</pre></details>
           </div></div>
+        <div class="card"><div class="card-head" style="padding-bottom:6px"><div class="avatar accent">${ic('bell')}</div>
+          <h2>Beobachtete Geräte<div class="faint" style="font-weight:400;font-size:12.5px">Meldung, wenn eines länger als 3 Minuten offline ist – und wenn es wieder da ist</div></h2>${sw(s.watch_alarm, 'id="setWatch"')}</div>
+          <div class="card-body flush"><div class="list">${(data.watched || []).map((w) => `<div class="list-item">
+            <span class="dot ${w.active ? 'ok' : 'err'}"></span>
+            <div class="grow"><div class="title">${esc(w.name || w.mac)}</div><div class="meta">${w.active ? 'Online' : `Offline${w.last_seen ? ` seit ${fmtAgo(w.last_seen)}` : ''}`}${w.ip ? ` · ${esc(w.ip)}` : ''}</div></div>
+            <button class="icon-btn" title="Nicht mehr beobachten" data-unwatch="${esc(w.mac)}">${ic('x')}</button></div>`).join('')
+            || '<div class="muted" style="padding:6px 18px 14px;font-size:13px">Noch keine Geräte. Über das Glocken-Symbol in der Geräteliste (oder in den Geräte-Details) lässt sich jedes Gerät beobachten.</div>'}</div>
+          <div class="muted" style="padding:10px 18px 14px;font-size:12.5px;border-top:1px solid var(--border)">Die Meldung geht an dieselben Ziele wie der Neue-Geräte-Alarm (Home Assistant / Push). Ereignisse für Automationen: <code>fritzhub_device_offline</code> und <code>fritzhub_device_online</code>.</div></div></div>
         <div class="card"><div class="card-head"><h2>Zuletzt erkannte neue Geräte <span class="sub">${data.new_devices.length}</span></h2></div>
           <div class="card-body flush"><div class="list">${rows || `<div class="muted" style="padding:6px 18px 14px;font-size:13px">Seit ${since} ist kein neues Gerät aufgetaucht. Alle Geräte, die die FRITZ!Box beim ersten Start kannte, gelten als bekannt.</div>`}</div></div></div>
       </div>`;
       $('#setAlarm').addEventListener('change', (e) => save({ new_device_alarm: e.target.checked }, e.target.checked ? 'Alarm eingeschaltet.' : 'Alarm ausgeschaltet.'));
+      $('#setWatch').addEventListener('change', (e) => save({ watch_alarm: e.target.checked }, e.target.checked ? 'Meldungen für beobachtete Geräte eingeschaltet.' : 'Meldungen für beobachtete Geräte ausgeschaltet.'));
+      $$('[data-unwatch]').forEach((b) => b.addEventListener('click', async () => {
+        try { await api('watch', { method: 'POST', body: { mac: b.dataset.unwatch, watched: false } }); data = await api('settings'); toast('Beobachtung beendet.'); draw(); } catch (e) { toast(e.message, 'err'); }
+      }));
       $('#saveSet').addEventListener('click', (e) => withBusy(e.currentTarget, () => save({ notify_persistent: $('#setPersistent').checked, notify_service: $('#setService').value.trim() }, 'Einstellungen gespeichert.')));
       $('#testSet').addEventListener('click', (e) => withBusy(e.currentTarget, async () => {
         await save({ notify_persistent: $('#setPersistent').checked, notify_service: $('#setService').value.trim() });
@@ -2061,7 +2262,7 @@ actions:
   }
 
   const RENDER = {
-    dashboard: renderDashboard, devices: renderDevices, topology: renderTopology, wlan: renderWlan,
+    dashboard: renderDashboard, devices: renderDevices, topology: renderTopology, wlan: renderWlan, netcheck: renderNetcheck,
     calls: renderCalls, tam: renderTam, nas: renderNas, system: renderSystem, settings: renderSettings,
   };
 

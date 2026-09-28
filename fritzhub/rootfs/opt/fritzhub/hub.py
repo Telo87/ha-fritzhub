@@ -11,6 +11,7 @@ from typing import Any
 
 from .box import BoxError, FritzBox
 from .config import BoxStore, Options, Settings
+from .devicelog import PINGPONG_ROAMS, DeviceLog
 from .ha import SensorPublisher
 from .nas import FritzNas
 from .oui import vendors
@@ -24,6 +25,7 @@ MESH_TTL = 30
 HOSTS_TTL = 15
 PHONE_POLL = 60
 WEBSCAN_INTERVAL = 30 * 60
+WATCH_DELAY = 180  # a watched device must be offline this long before an alert
 WLAN_POLL = 30
 
 
@@ -36,10 +38,14 @@ class Hub:
         nas_cls: type = FritzNas,
         stats: Stats | None = None,
         settings: Settings | None = None,
+        devlog: DeviceLog | None = None,
     ) -> None:
         self.options = options
         self.stats = stats or Stats()
         self.settings = settings or Settings()
+        self.devlog = devlog or DeviceLog()
+        self._watch_pending: dict[str, float] = {}  # mac -> offline since (alert not sent yet)
+        self._watch_alerted: dict[str, float] = {}  # mac -> offline since (alert sent)
         # devices with a web interface: {ip: [{url, port, title, …}]}
         self.web_uis: dict[str, list[dict[str, Any]]] = {}
         self.webscan_fn = scan_web_uis
@@ -105,6 +111,7 @@ class Hub:
             self._task.cancel()
         await self.publisher.close()
         await asyncio.to_thread(self.stats.save, True)
+        await asyncio.to_thread(self.devlog.save, True)
 
     def _record(self, now: float) -> None:
         """Throughput history, data volume and "last seen" – after the mesh roles
@@ -119,6 +126,8 @@ class Hub:
             self.stats.record_volume(box_id, wan.get("total_down"), wan.get("total_up"))
         if self._hosts_cache and now - self._hosts_cache[0] < HOSTS_TTL + 1:
             self.stats.mark_seen(self._hosts_cache[1], now)
+            changes = self.devlog.record(self._hosts_cache[1], self.wlan_clients, now)
+            self._track_watched(changes, now)
             new = self.stats.update_known(self._hosts_cache[1], now)
             if new:
                 asyncio.get_running_loop().create_task(self._announce_new_devices(new))
@@ -128,6 +137,7 @@ class Hub:
         if now - self._last_save > 300:
             self._last_save = now
             asyncio.get_running_loop().run_in_executor(None, self.stats.save)
+            asyncio.get_running_loop().run_in_executor(None, self.devlog.save)
 
     # --------------------------------------------------------------- helpers
     def box(self, box_id: str) -> FritzBox:
@@ -302,6 +312,90 @@ class Hub:
 
         self._webscan_task = asyncio.get_running_loop().create_task(run())
         return True
+
+    # ------------------------------------------------------------ watched devices
+    def _track_watched(self, changes: list[tuple[str, str]], now: float) -> None:
+        watched = set(self.settings.get("watched_devices") or [])
+        for mac, kind in changes:
+            if mac not in watched:
+                continue
+            if kind == "off":
+                self._watch_pending[mac] = now
+            else:
+                self._watch_pending.pop(mac, None)  # short dropout – no alert
+                since = self._watch_alerted.pop(mac, None)
+                if since is not None:
+                    self._notify_watch(mac, True, now - since)
+        for mac, since in list(self._watch_pending.items()):
+            if mac not in watched:
+                self._watch_pending.pop(mac)
+            elif now - since >= WATCH_DELAY:
+                self._watch_pending.pop(mac)
+                self._watch_alerted[mac] = since
+                self._notify_watch(mac, False, now - since)
+
+    def _notify_watch(self, mac: str, online: bool, duration: float) -> None:
+        host = next((h for h in (self._hosts_cache[1] if self._hosts_cache else []) if h["mac"] == mac), {"mac": mac})
+        dev = self.describe_device(host)
+        _LOGGER.info("Beobachtetes Gerät %s: %s", dev["name"], "wieder online" if online else "offline")
+        if self.settings.get("watch_alarm"):
+            asyncio.get_running_loop().create_task(self.notify_device_state(dev, online, duration))
+
+    async def notify_device_state(self, dev: dict[str, Any], online: bool, duration: float) -> None:
+        minutes = max(1, round(duration / 60))
+        span = f"{minutes} Min" if minutes < 90 else f"{round(minutes / 60, 1)} Std".replace(".", ",")
+        title = f"{dev['name']} ist wieder online" if online else f"{dev['name']} ist offline"
+        message = f"Nach {span} offline wieder erreichbar." if online else f"Seit {span} nicht mehr im Heimnetz erreichbar."
+        if dev.get("ip"):
+            message += f" (IP {dev['ip']})"
+        try:
+            await self.publisher.fire_event(
+                "fritzhub_device_online" if online else "fritzhub_device_offline",
+                {**dev, "duration_s": int(duration)},
+            )
+            if self.settings.get("notify_persistent"):
+                await self.publisher.call_service("persistent_notification.create", {
+                    "title": title, "message": message,
+                    "notification_id": f"fritzhub_watch_{dev['mac'].replace(':', '')}",
+                })
+            service = self.settings.get("notify_service")
+            if service:
+                await self.publisher.call_service(service, {"title": title, "message": message})
+        except Exception as err:  # noqa: BLE001 - never break polling
+            _LOGGER.warning("Benachrichtigung fehlgeschlagen: %s", err)
+
+    # ------------------------------------------------------------ network check
+    def netcheck(self) -> dict[str, Any]:
+        """Device based findings for the network check page."""
+        now = time.time()
+        names = {h["mac"]: h.get("name") for h in (self._hosts_cache[1] if self._hosts_cache else [])}
+        load: dict[str, dict[str, Any]] = {}
+        weak, roaming, band_hint = [], [], []
+        for mac, c in self.wlan_clients.items():
+            entry = load.setdefault(c["ap"], {"ap": c["ap"], "clients": 0, "2,4 GHz": 0, "5 GHz": 0, "6 GHz": 0})
+            entry["clients"] += 1
+            if c.get("band") in entry:
+                entry[c["band"]] += 1
+            name = names.get(mac) or mac
+            avg = self.devlog.avg_signal(mac, now - 86400)
+            if avg is not None and avg < 40:
+                weak.append({"mac": mac, "name": name, "ap": c["ap"], "band": c.get("band"),
+                             "avg": avg, "signal": c.get("signal")})
+            roams = self.devlog.roams(mac, now - 86400)
+            if roams >= PINGPONG_ROAMS:
+                aps = sorted({e[3] for e in self.devlog.devices.get(mac, {}).get("ev", [])
+                              if e[1] == "roam" and e[0] >= now - 86400} | {c["ap"]})
+                roaming.append({"mac": mac, "name": name, "roams": roams, "aps": aps})
+            if (c.get("band") or "").startswith("2") and "5 GHz" in self.devlog.bands_seen(mac):
+                band_hint.append({"mac": mac, "name": name, "ap": c["ap"], "signal": c.get("signal")})
+        first_seen = [d["sig"][0][0] for d in self.devlog.devices.values() if d.get("sig")]
+        return {
+            "ap_load": sorted(load.values(), key=lambda a: -a["clients"]),
+            "weak": sorted(weak, key=lambda w: w["avg"]),
+            "roaming": sorted(roaming, key=lambda r: -r["roams"]),
+            "band_hint": band_hint,
+            "data_since": min(first_seen) if first_seen else None,
+        }
 
     # ------------------------------------------------------------ new devices
     def describe_device(self, host: dict[str, Any]) -> dict[str, Any]:
@@ -552,10 +646,13 @@ class Hub:
             mesh = None
         if mesh:
             self._enrich_from_mesh(hosts, mesh)
+        watched = set(self.settings.get("watched_devices") or [])
         # signal strength as reported by the access point the device is connected to
         for h in hosts:
             h.update(vendors.lookup(h["mac"]) or {})
             h["new_since"] = self.stats.known_since(h["mac"]) or None
+            h["watched"] = h["mac"] in watched
+            h["roams_24h"] = self.devlog.roams(h["mac"], time.time() - 86400)
             h["web"] = self.web_uis.get(h.get("ip") or "", []) if h["active"] else []
             seen = self.stats.seen(h["mac"]) or {}
             h["last_seen"] = seen.get("last")

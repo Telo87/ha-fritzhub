@@ -71,6 +71,20 @@ die Oberfläche in einem neuen Fenster.
 Die Links zeigen auf die lokale IP-Adresse des Geräts. Sie funktionieren daher nur, wenn der Browser im
 Heimnetz ist (oder per VPN verbunden) – nicht über den Fernzugriff von Home Assistant.
 
+## Beobachtete Geräte
+
+Über das Glocken-Symbol in der Geräteliste (oder in den Geräte-Details) lässt sich jedes Gerät beobachten.
+Ist ein beobachtetes Gerät **länger als 3 Minuten** offline, meldet FritzHub das – und noch einmal, sobald
+es wieder erreichbar ist. Kürzere Aussetzer lösen keine Meldung aus. Die Meldungen gehen an dieselben Ziele
+wie der Neue-Geräte-Alarm und lassen sich unter **Einstellungen › Benachrichtigungen** abschalten.
+Für Automationen gibt es die Ereignisse `fritzhub_device_offline` und `fritzhub_device_online`.
+
+## Netzwerk-Check
+
+Die Seite **Netzwerk-Check** fasst alle Messwerte zu Empfehlungen zusammen. Geräte-Auswertungen (schwaches
+Signal, Roaming, Band) beziehen sich auf die letzten 24 Stunden – direkt nach der Installation liegen noch
+wenige Daten vor.
+
 ## Alarm bei neuen Geräten
 
 FritzHub merkt sich alle Geräte, die die FRITZ!Box kennt. Taucht eine unbekannte MAC-Adresse auf,

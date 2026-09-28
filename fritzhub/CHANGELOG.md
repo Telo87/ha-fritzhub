@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.0
+
+- Neu: **Geräte-Details** – Klick auf ein Gerät zeigt Status, Verfügbarkeit der letzten 7 Tage, Signalverlauf (3 Tage) und alle Ereignisse: Online/Offline, **Roaming zwischen Box und Repeatern**, Bandwechsel; Hinweis bei häufigem Hin- und Herspringen
+- Neu: **Beobachtete Geräte** – Glocken-Symbol in der Geräteliste; Meldung, wenn ein Gerät länger als 3 Minuten offline ist und wenn es wieder da ist (Home Assistant, Push, Ereignisse `fritzhub_device_offline` / `fritzhub_device_online`), abschaltbar
+- Neu: **Netzwerk-Check** – Empfehlungen aus allen Messwerten: Kanalkonflikte, Anbindung der Repeater, Auslastung der Zugangspunkte, dauerhaft schwache Geräte, springende Geräte, Geräte im 2,4-GHz-Netz, die 5 GHz können, alte Einträge, Updates
+- Geräte-Protokoll wird dauerhaft gespeichert (`/data/devices.json`, Ereignisse 14 Tage, Signal 3 Tage)
+
 ## 1.8.2
 
 - Weboberflächen: HTTP- und HTTPS-Variante desselben Servers (80/443, 8080/8443, 5000/5001) werden auch ohne Seitentitel nur einmal angezeigt

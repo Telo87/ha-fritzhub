@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.8.2-2563eb">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.9.0-2563eb">
   <img alt="Architekturen" src="https://img.shields.io/badge/arch-amd64%20%7C%20aarch64-0d9488">
   <img alt="Lizenz" src="https://img.shields.io/badge/license-MIT-64748b">
 </p>
@@ -30,7 +30,8 @@
 |---|---|
 | 📊 **Übersicht** | Internetstatus, Durchsatz-Verlauf (1 Std / 24 Std / 7 Tage), **Datenvolumen pro Tag und Monat**, DSL-Werte (Sync, Störabstand, Dämpfung), IPv4/IPv6, Datenvolumen, Status aller Mesh-Geräte inkl. Firmware-Updates |
 | 🕸️ **Mesh-Topologie** | Interaktive Karte (Zoomen, Verschieben, Details per Klick) mit Verbindungsart (LAN/WLAN, Band) und Geschwindigkeit jeder Strecke; **WLAN-Anbindung der Repeater** mit Signalstärke, Raten und Verlauf |
-| 💻 **Geräte** | Alle Geräte im Heimnetz mit Suche, **Weboberflächen mit einem Klick öffnen**, **Umbenennen**, **Alarm bei neuen Geräten** (HA-Meldung / Push / Ereignis), Filtern (Online, WLAN, LAN, Gäste …), Zugangspunkt im Mesh, **WLAN-Signalstärke** inkl. Übersicht der schwächsten Verbindungen, **Internetzugang sperren/erlauben**, „Zuletzt gesehen“ zum Aufräumen alter Einträge |
+| 🩺 **Netzwerk-Check** | Empfehlungen aus allen Messwerten: Kanalkonflikte, Anbindung der Repeater, Auslastung, dauerhaft schwache und **zwischen Repeatern springende Geräte**, 2,4 statt 5 GHz, Updates |
+| 💻 **Geräte** | Alle Geräte im Heimnetz mit **Detailansicht (Verfügbarkeit, Signalverlauf, Roaming)**, **Beobachten** mit Meldung bei Ausfall, Suche, **Weboberflächen mit einem Klick öffnen**, **Umbenennen**, **Alarm bei neuen Geräten** (HA-Meldung / Push / Ereignis), Filtern (Online, WLAN, LAN, Gäste …), Zugangspunkt im Mesh, **WLAN-Signalstärke** inkl. Übersicht der schwächsten Verbindungen, **Internetzugang sperren/erlauben**, „Zuletzt gesehen“ zum Aufräumen alter Einträge |
 | 📶 **WLAN** | **Kanalprüfung** mit Warnung bei Überschneidungen und Kanalvorschlag, alle Funknetze aller Boxen und Repeater, ein-/ausschalten, SSID und Passwort ändern, **QR-Code** zum Verbinden (ideal fürs Gastnetz) |
 | 📞 **Anrufe** | Anrufliste mit Filtern und Suche, gruppiert nach Tagen; **Nummern sperren** (Rufsperre); Rufumleitungen ein-/ausschalten |
 | 📼 **Anrufbeantworter** | Nachrichten direkt im Browser **abhören**, herunterladen, als gehört markieren, löschen; Anrufbeantworter ein-/ausschalten |
@@ -46,6 +47,10 @@ Dazu: helles & dunkles Design, responsiv bis aufs Smartphone, keine externen Abh
   <tr>
     <td><img src="docs/screenshots/topology.png" alt="Mesh-Topologie"></td>
     <td><img src="docs/screenshots/devices.png" alt="Geräte"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/netcheck.png" alt="Netzwerk-Check"></td>
+    <td><img src="docs/screenshots/dashboard.png" alt="Übersicht"></td>
   </tr>
   <tr>
     <td><img src="docs/screenshots/calls.png" alt="Anrufe"></td>
@@ -142,6 +147,8 @@ mesh networks with several boxes and repeaters. The user interface is currently 
 
 - **Dashboard** – internet status, throughput history (1 h / 24 h / 7 days), data volume per day and month,
   DSL values, status and firmware of every mesh device
+- **Network check** – recommendations from all measurements (channels, repeater uplinks, load, weak and roaming devices)
+- **Device details** – availability (7 days), signal history, roaming between access points; **watch devices** and get notified when they go offline
 - **Mesh topology** – interactive map with link type and speed; WLAN uplink quality of repeaters (signal, rates,
   history) and a warning for LAN links below 1 Gbit/s
 - **Devices** – all devices with vendor detection (MAC), WLAN signal strength, weakest connections,

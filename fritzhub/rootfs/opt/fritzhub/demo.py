@@ -555,3 +555,51 @@ async def demo_webscan(hosts: list[dict[str, Any]]) -> dict[str, list[dict[str, 
             url = f"{scheme}://{h['ip']}/" if default else f"{scheme}://{h['ip']}:{port}/"
             found.setdefault(h["ip"], []).append({"url": url, "port": port, "scheme": scheme, "title": title, "login": login})
     return found
+
+
+def seed_demo_devices(hub) -> None:
+    """Synthetic device history: roaming, weak signal, band changes, online/offline."""
+    log = hub.devlog
+    if log.devices:
+        return
+    now = int(time.time())
+    rnd = random.Random(11)
+    idx = {name: i for i, (name, *_rest) in enumerate(CLIENTS)}
+
+    def dev(name, ap, band, active=True):
+        d = log.devices.setdefault(_mac(idx[name]), {"ev": [], "sig": []})
+        d.update(active=active, ap=ap, band=band)
+        return d
+
+    def signal(d, base, spread, hours=72):
+        for t in range(now - hours * 3600, now, 600):
+            d["sig"].append([t // 600 * 600, int(max(3, min(99, base + rnd.uniform(-spread, spread)))), 1])
+
+    # phone jumping between the box and the repeater upstairs ("ping-pong")
+    d = dev("Pixel-8-Tom", "Repeater OG", "5 GHz")
+    aps = ["FRITZ!Box", "Repeater OG"]
+    t = now - 22 * 3600
+    for k in range(11):
+        d["ev"].append([t, "roam", aps[k % 2], aps[(k + 1) % 2], "5 GHz"])
+        t += rnd.randint(40, 140) * 60
+    signal(d, 58, 18)
+    # robot mower: permanently weak signal at the garden repeater
+    signal(dev("Mähroboter", "Repeater Garten", "2,4 GHz"), 17, 6)
+    signal(dev("Shelly-Plug-Garage", "Repeater Garten", "2,4 GHz"), 29, 5)
+    signal(dev("ESP-Wetterstation", "Repeater Garten", "2,4 GHz"), 36, 6)
+    # speaker that used to be on 5 GHz and fell back to 2.4 GHz
+    d = dev("Sonos-Kueche", "FRITZ!Box", "2,4 GHz")
+    d["ev"].append([now - 30 * 3600, "band", "5 GHz", "2,4 GHz", "FRITZ!Box"])
+    signal(d, 61, 8)
+    # phone that goes offline at night
+    d = dev("iPhone-Anna", "FRITZ!Box", "5 GHz")
+    for day in (2, 1):
+        d["ev"].append([now - day * 86400 - 3 * 3600, "off"])
+        d["ev"].append([now - day * 86400 + 4 * 3600, "on", "FRITZ!Box"])
+    d["ev"].append([now - 5 * 3600, "roam", "FRITZ!Box", "Repeater OG", "5 GHz"])
+    d["ev"].append([now - 4 * 3600, "roam", "Repeater OG", "FRITZ!Box", "5 GHz"])
+    signal(d, 70, 10)
+    for name, ap, band in (("Galaxy-Tab", "FRITZ!Box", "5 GHz"), ("iPad-Kinder", "Repeater OG", "5 GHz"),
+                           ("MacBook-Pro", "Repeater OG", "5 GHz"), ("Echo-Dot", "FRITZ!Box", "2,4 GHz"),
+                           ("Brother-Drucker", "FRITZ!Box", "2,4 GHz")):
+        signal(dev(name, ap, band), 60, 15)
