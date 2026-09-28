@@ -478,6 +478,16 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .modal-back { position: fixed; inset: 0; background: rgba(8, 12, 24, .45); display: grid; place-items: center; z-index: 50; padding: 16px; animation: fade .15s ease; }
 .modal { width: 100%; max-width: 520px; max-height: calc(100vh - 32px); overflow: auto; background: var(--surface); border-radius: 18px; box-shadow: var(--shadow-lg); border: 1px solid var(--border); animation: pop .18s ease; }
 .modal.wide { max-width: 720px; }
+.modal.preview { max-width: min(1200px, 96vw); }
+.modal.preview .modal-head h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pv-stage { display: grid; place-items: center; min-height: 240px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.pv-stage img { max-width: 100%; max-height: 72vh; display: block; }
+.pv-stage iframe { width: 100%; height: 75vh; border: 0; background: #fff; }
+.pv-stage video { max-width: 100%; max-height: 72vh; background: #000; display: block; }
+.pv-audio { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 40px 20px; color: var(--accent); }
+.pv-audio svg.i { width: 48px; height: 48px; }
+.pv-text { margin: 0; width: 100%; max-height: 72vh; overflow: auto; padding: 16px 18px; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; place-self: stretch; }
+svg.i.flip { transform: scaleX(-1); }
 .modal-head { display: flex; align-items: center; gap: 10px; padding: 18px 20px 6px; }
 .modal-head h3 { flex: 1; margin: 0; font-size: 17px; }
 .modal-body { padding: 10px 20px 6px; }

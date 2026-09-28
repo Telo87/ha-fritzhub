@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import mimetypes
 import os
 import posixpath
 import queue
@@ -391,6 +392,25 @@ async def nas_list(request: web.Request) -> web.Response:
     return _ok(await asyncio.to_thread(nas.list, request.query.get("path", "/")))
 
 
+# Content types for the preview. Anything that could run script in our
+# (ingress) origin is served as plain text or sandboxed.
+_TEXT_EXT = {
+    "txt", "log", "md", "csv", "tsv", "json", "xml", "yaml", "yml", "ini", "conf", "cfg",
+    "sh", "py", "js", "ts", "css", "html", "htm", "sql", "toml", "properties", "nfo", "srt",
+}
+
+
+def _preview_headers(name: str) -> dict[str, str]:
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if ext in _TEXT_EXT:
+        return {"Content-Type": "text/plain; charset=utf-8"}
+    mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    headers = {"Content-Type": mime}
+    if mime == "image/svg+xml":
+        headers["Content-Security-Policy"] = "sandbox; default-src 'none'; style-src 'unsafe-inline'"
+    return headers
+
+
 @routes.get("/api/nas/{box_id}/download")
 async def nas_download(request: web.Request) -> web.StreamResponse:
     nas = _nas(request)
@@ -410,13 +430,15 @@ async def nas_download(request: web.Request) -> web.StreamResponse:
         raise first
 
     name = posixpath.basename(path)
-    disposition = "attachment" if request.query.get("inline") != "1" else "inline"
-    resp = web.StreamResponse(
-        headers={
-            "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(name)}",
-            "Content-Type": "application/octet-stream",
-        }
-    )
+    inline = request.query.get("inline") == "1"
+    headers = {
+        "Content-Disposition": f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{quote(name)}",
+        "Content-Type": "application/octet-stream",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if inline:
+        headers.update(_preview_headers(name))
+    resp = web.StreamResponse(headers=headers)
     if size is not None:
         resp.content_length = size
     await resp.prepare(request)

@@ -362,6 +362,17 @@ class DemoNas:
                             ("/USB-Stick/Musik/Playlist.mp3", 5_600_000), ("/USB-Stick/Backups/homeassistant.tar", 42_000_000),
                             ("/USB-Stick/Rechnung-Strom.pdf", 180_000), ("/FRITZ/mediabox/readme.txt", 1_200)):
                 self._files[f] = b"\0" * min(size, 4096)
+            # real content so the preview can be tried out in demo mode
+            repo = Path(__file__).resolve().parents[3]
+            for target, source in (("/USB-Stick/Fotos/Garten.png", repo / "icon.png"),
+                                   ("/USB-Stick/Fotos/Urlaub-2026.jpg", repo / "logo.png")):
+                if source.exists():
+                    self._files[target] = source.read_bytes()
+            self._files["/USB-Stick/Rechnung-Strom.pdf"] = _demo_pdf()
+            self._files["/FRITZ/mediabox/readme.txt"] = (
+                "FRITZ!NAS – Mediabox\n\nDieser Ordner enthält Medien für die FRITZ!Box-Mediaserver-Funktion.\n"
+            ).encode()
+            self._files["/USB-Stick/Einkaufsliste.md"] = "# Einkauf\n\n- Milch\n- Brot\n- Kaffee\n".encode()
 
     def list(self, path: str) -> list[dict[str, Any]]:
         path = norm(path)
@@ -415,6 +426,30 @@ class DemoNas:
                 self._files.pop(f)
         else:
             self._files.pop(path, None)
+
+
+def _demo_pdf() -> bytes:
+    """Minimal one-page PDF with a line of text."""
+    text = b"BT /F1 24 Tf 72 740 Td (Stromrechnung 2026 - Demo) Tj ET"
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R "
+        b"/Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length " + str(len(text)).encode() + b" >>\nstream\n" + text + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for n, obj in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += f"{n} 0 obj\n".encode() + obj + b"\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+    for off in offsets:
+        out += f"{off:010d} 00000 n \n".encode()
+    out += f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    return bytes(out)
 
 
 def demo_store() -> BoxStore:

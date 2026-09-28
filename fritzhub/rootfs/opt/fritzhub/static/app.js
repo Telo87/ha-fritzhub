@@ -178,10 +178,10 @@
     setTimeout(() => el.remove(), type === 'err' ? 7000 : 3500);
   }
 
-  function modal({ title, body, foot = '', wide = false, onMount, onClose }) {
+  function modal({ title, body, foot = '', wide = false, cls = '', onMount, onClose }) {
     const root = document.createElement('div');
     root.className = 'modal-back';
-    root.innerHTML = `<div class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true">
+    root.innerHTML = `<div class="modal ${wide ? 'wide' : ''} ${cls}" role="dialog" aria-modal="true">
       <div class="modal-head"><h3>${esc(title)}</h3><button class="icon-btn" data-close aria-label="Schließen">${ic('x')}</button></div>
       <div class="modal-body">${body}</div>
       ${foot ? `<div class="modal-foot">${foot}</div>` : ''}
@@ -1257,6 +1257,74 @@
   }
 
   // -------------------------------------------------------------------- NAS
+  const PREVIEW = {
+    image: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'ico'],
+    pdf: ['pdf'],
+    video: ['mp4', 'webm', 'm4v', 'mov', 'ogv'],
+    audio: ['mp3', 'wav', 'ogg', 'oga', 'm4a', 'aac', 'flac', 'opus'],
+    text: ['txt', 'log', 'md', 'csv', 'tsv', 'json', 'xml', 'yaml', 'yml', 'ini', 'conf', 'cfg', 'sh', 'py', 'js', 'ts',
+      'css', 'html', 'htm', 'sql', 'toml', 'properties', 'nfo', 'srt'],
+  };
+  const TEXT_LIMIT = 2 * 1024 * 1024;
+  function previewKind(name) {
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    return Object.keys(PREVIEW).find((k) => PREVIEW[k].includes(ext)) || null;
+  }
+
+  // Preview dialog for NAS files; ←/→ step through all previewable files of the folder
+  function openPreview(files, index, urlFor) {
+    let i = index;
+    let onKey = null;
+    modal({
+      title: files[i].name,
+      cls: 'preview',
+      body: '<div class="pv-stage" id="pvStage"></div>',
+      foot: `<span class="faint left" id="pvInfo" style="font-size:12.5px;align-self:center"></span>
+        <button class="btn" id="pvPrev" title="Vorherige (←)">${ic('chevron', 'flip')}</button>
+        <button class="btn" id="pvNext" title="Nächste (→)">${ic('chevron')}</button>
+        <a class="btn primary" id="pvDl">${ic('download')}Herunterladen</a>`,
+      onMount(m) {
+        const stage = m.querySelector('#pvStage');
+        const show = async () => {
+          const f = files[i];
+          const kind = previewKind(f.name);
+          const src = urlFor(f, true);
+          m.querySelector('.modal-head h3').textContent = f.name;
+          m.querySelector('#pvInfo').textContent = `${i + 1} / ${files.length} · ${fmtBytes(f.size)}`;
+          m.querySelector('#pvDl').href = urlFor(f, false);
+          m.querySelector('#pvPrev').disabled = i === 0;
+          m.querySelector('#pvNext').disabled = i === files.length - 1;
+          if (kind === 'image') stage.innerHTML = `<img src="${src}" alt="${esc(f.name)}">`;
+          else if (kind === 'pdf') stage.innerHTML = `<iframe src="${src}" title="${esc(f.name)}"></iframe>`;
+          else if (kind === 'video') stage.innerHTML = `<video src="${src}" controls autoplay playsinline></video>`;
+          else if (kind === 'audio') stage.innerHTML = `<div class="pv-audio">${ic('music')}<audio src="${src}" controls autoplay></audio></div>`;
+          else if (kind === 'text') {
+            if (f.size > TEXT_LIMIT) { stage.innerHTML = `<div class="empty">Die Datei ist zu groß für die Vorschau (${fmtBytes(f.size)}).</div>`; return; }
+            stage.innerHTML = `<div class="empty">${ic('refresh', 'spin')} Wird geladen …</div>`;
+            try {
+              const res = await fetch(src);
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const text = await res.text();
+              if (files[i] === f) stage.innerHTML = `<pre class="pv-text">${esc(text)}</pre>`;
+            } catch (err) { stage.innerHTML = errorBox(`Vorschau nicht möglich: ${err.message}`); }
+          }
+          const media = stage.querySelector('img, video, audio');
+          if (media) media.addEventListener('error', () => { stage.innerHTML = errorBox('Die Datei kann im Browser nicht angezeigt werden.'); });
+        };
+        const step = (d) => { if (files[i + d]) { i += d; show(); } };
+        m.querySelector('#pvPrev').addEventListener('click', () => step(-1));
+        m.querySelector('#pvNext').addEventListener('click', () => step(1));
+        onKey = (e) => {
+          if (e.key === 'ArrowLeft') step(-1);
+          else if (e.key === 'ArrowRight') step(1);
+        };
+        document.addEventListener('keydown', onKey);
+        show();
+      },
+      onClose: () => { if (onKey) document.removeEventListener('keydown', onKey); },
+    });
+  }
+
   function fileIcon(name) {
     const ext = (name.split('.').pop() || '').toLowerCase();
     if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'bmp', 'svg'].includes(ext)) return 'image';
@@ -1285,10 +1353,12 @@
       const crumbs = [`<button data-path="/">${ic('home')}</button>`].concat(parts.map((p, i) => `<span class="sep">${ic('chevron')}</span><button data-path="/${parts.slice(0, i + 1).map(esc).join('/')}">${esc(p)}</button>`)).join('');
       const rows = entries.map((e) => {
         const full = join(path, e.name);
-        return `<div class="list-item ${e.dir ? 'clickable' : ''}" ${e.dir ? `data-open="${esc(full)}"` : ''}>
+        const pv = !e.dir && previewKind(e.name);
+        return `<div class="list-item ${e.dir || pv ? 'clickable' : ''}" ${e.dir ? `data-open="${esc(full)}"` : pv ? `data-preview="${esc(e.name)}"` : ''}>
           <div class="avatar ${e.dir ? 'accent' : ''}">${ic(e.dir ? 'folder' : fileIcon(e.name))}</div>
           <div class="grow"><div class="title">${esc(e.name)}</div><div class="meta">${e.dir ? 'Ordner' : fmtBytes(e.size)}${e.modified ? ` · ${new Date(e.modified).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })}` : ''}</div></div>
           <div class="actions row" style="gap:2px">
+            ${pv ? `<button class="icon-btn hide-sm" title="Vorschau" data-preview-btn="${esc(e.name)}" data-stop>${ic('eye')}</button>` : ''}
             ${e.dir ? '' : `<a class="icon-btn" title="Herunterladen" href="api/nas/${bid}/download?path=${encodeURIComponent(full)}" data-stop>${ic('download')}</a>`}
             <button class="icon-btn" title="Umbenennen" data-rename="${esc(full)}" data-stop>${ic('edit')}</button>
             <button class="icon-btn danger" title="Löschen" data-del="${esc(full)}" data-dir="${e.dir ? 1 : 0}" data-stop>${ic('trash')}</button>
@@ -1304,6 +1374,11 @@
         </div>`;
       $$('[data-path]').forEach((b) => b.addEventListener('click', () => go(b.dataset.path)));
       $$('[data-open]').forEach((r) => r.addEventListener('click', (e) => { if (!e.target.closest('[data-stop]')) go(r.dataset.open); }));
+      const previewable = entries.filter((x) => !x.dir && previewKind(x.name));
+      const urlFor = (f, inline) => `api/nas/${bid}/download?path=${encodeURIComponent(join(path, f.name))}${inline ? '&inline=1' : ''}`;
+      const openByName = (name) => openPreview(previewable, previewable.findIndex((x) => x.name === name), urlFor);
+      $$('[data-preview]').forEach((r) => r.addEventListener('click', (e) => { if (!e.target.closest('[data-stop]')) openByName(r.dataset.preview); }));
+      $$('[data-preview-btn]').forEach((b) => b.addEventListener('click', () => openByName(b.dataset.previewBtn)));
       $('#nasRefresh').addEventListener('click', () => go(path));
       $$('[data-del]').forEach((b) => b.addEventListener('click', async () => {
         const p = b.dataset.del; const isDir = b.dataset.dir === '1'; const name = p.split('/').pop();

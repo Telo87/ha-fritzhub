@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.0
+
+- Neu: Vorschau im FRITZ!NAS für Bilder, PDFs, Videos, Audio und Textdateien – mit Blättern per Pfeiltasten durch alle Dateien eines Ordners
+
 ## 1.4.0
 
 - Neu: Datendurchsatz-Verlauf für 1 Stunde, 24 Stunden und 7 Tage (dauerhaft gespeichert)
