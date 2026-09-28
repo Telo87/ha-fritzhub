@@ -15,6 +15,95 @@
     fn();
     if (el.scrollTop !== top) el.scrollTop = top;
   }
+  const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // DOM morphing: periodic refreshes only touch what actually changed, so hover
+  // states, focus, tooltips and running animations survive. Children are matched
+  // by data-key / id, otherwise by position. Elements marked data-keep are left
+  // alone (their content is managed elsewhere, e.g. the chart). An element whose
+  // data-flash value changes lights up briefly (device goes online …).
+  const keyOf = (n) => (n.nodeType === 1 ? n.getAttribute('data-key') || n.id || null : null);
+  function flash(el) {
+    el.classList.remove('flash');
+    void el.offsetWidth; // restart the animation
+    el.classList.add('flash');
+    clearTimeout(el._flashT);
+    el._flashT = setTimeout(() => el.classList.remove('flash'), 1600);
+  }
+  function morphNode(a, b) {
+    if (a.nodeType !== 1) { if (a.nodeValue !== b.nodeValue) a.nodeValue = b.nodeValue; return; }
+    if (a.hasAttribute('data-keep') && b.hasAttribute('data-keep')) return;
+    const changed = a.hasAttribute('data-flash') && b.hasAttribute('data-flash') && a.getAttribute('data-flash') !== b.getAttribute('data-flash');
+    Array.from(a.attributes).forEach((at) => { if (!b.hasAttribute(at.name)) a.removeAttribute(at.name); });
+    Array.from(b.attributes).forEach((at) => { if (a.getAttribute(at.name) !== at.value) a.setAttribute(at.name, at.value); });
+    if (a.tagName === 'INPUT') {
+      if (a.type === 'checkbox' || a.type === 'radio') a.checked = b.hasAttribute('checked');
+      else if (a !== document.activeElement && a.value !== (b.getAttribute('value') || '')) a.value = b.getAttribute('value') || '';
+    }
+    if (a.tagName !== 'TEXTAREA') morphChildren(a, b);
+    if (changed) flash(a);
+  }
+  function morphChildren(cur, next) {
+    const keyed = new Map();
+    Array.from(cur.childNodes).forEach((n) => { const k = keyOf(n); if (k) keyed.set(k, n); });
+    const list = Array.from(next.childNodes);
+    list.forEach((nb, i) => {
+      const k = keyOf(nb);
+      let na = k ? keyed.get(k) : cur.childNodes[i];
+      if (na && k) keyed.delete(k);
+      if (na && (na.nodeType !== nb.nodeType || na.nodeName !== nb.nodeName || (!k && keyOf(na)))) na = null;
+      if (!na) { cur.insertBefore(nb, cur.childNodes[i] || null); return; }
+      if (na !== cur.childNodes[i]) cur.insertBefore(na, cur.childNodes[i] || null);
+      morphNode(na, nb);
+    });
+    while (cur.childNodes.length > list.length) cur.lastChild.remove();
+  }
+  function morph(target, html) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html;
+    morphChildren(target, tpl.content);
+    animateCounts(target);
+  }
+  // first draw after the loading skeleton: replace (so the page fades in), later: morph
+  function render(el, html) {
+    if (!el.firstElementChild || el.querySelector(':scope > .card > .card-body > .skeleton')) { el.innerHTML = html; animateCounts(el); } else morph(el, html);
+  }
+  // one listener per element and event; redraws only swap the handler
+  function on(el, type, fn) {
+    if (!el) return;
+    el._on = el._on || {};
+    if (!el._on[type]) el.addEventListener(type, (e) => el._on[type](e));
+    el._on[type] = fn;
+  }
+
+  // Numbers count up/down to their new value: <span data-count=key …>
+  const counts = new Map();
+  function cnt(key, text, unit = '') {
+    const s = String(text);
+    if (!/^-?[\d.]+(,\d+)?$/.test(s)) return esc(s);
+    const dec = (s.split(',')[1] || '').length;
+    const val = Number(s.replace(/\./g, '').replace(',', '.'));
+    return `<span data-count="${esc(key)}" data-val="${val}" data-dec="${dec}" data-unit="${esc(unit)}">${s}</span>`;
+  }
+  function animateCounts(root) {
+    root.querySelectorAll('[data-count]').forEach((el) => {
+      const key = el.dataset.count; const to = Number(el.dataset.val); const dec = Number(el.dataset.dec); const unit = el.dataset.unit;
+      const prev = counts.get(key);
+      counts.set(key, { v: to, unit });
+      const from = prev ? (prev.unit === unit ? prev.v : to) : 0;
+      if (el._anim) cancelAnimationFrame(el._anim);
+      if (from === to || reducedMotion()) return;
+      const fmt = (v) => nf(v, dec);
+      const t0 = performance.now(); const dur = prev ? 600 : 800;
+      const step = (t) => {
+        const p = Math.min(1, (t - t0) / dur); const e = 1 - (1 - p) ** 3;
+        el.textContent = fmt(from + (to - from) * e);
+        el._anim = p < 1 ? requestAnimationFrame(step) : null;
+      };
+      el.textContent = fmt(from);
+      el._anim = requestAnimationFrame(step);
+    });
+  }
   const store = {
     get(k, d) { try { const v = localStorage.getItem('fritzhub.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
     set(k, v) { try { localStorage.setItem('fritzhub.' + k, JSON.stringify(v)); } catch { /* ignore */ } },
@@ -93,6 +182,7 @@
     star: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/>',
     message: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
     bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+    palette: '<path d="M12 3a9 9 0 0 0 0 18c1.1 0 1.8-.8 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/>',
   };
   const ic = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[name] || ''}</svg>`;
 
@@ -178,8 +268,12 @@
     const el = document.createElement('div');
     el.className = `toast ${type}`;
     el.innerHTML = `${ic(type === 'err' ? 'alert' : type === 'info' ? 'info' : 'checkCircle')}<div>${esc(msg)}</div>`;
+    // the check mark draws itself
+    if (type === 'ok') el.querySelectorAll('svg path').forEach((p) => p.setAttribute('pathLength', '1'));
     $('#toasts').appendChild(el);
-    setTimeout(() => el.remove(), type === 'err' ? 7000 : 3500);
+    const hide = () => { el.classList.add('leaving'); setTimeout(() => el.remove(), reducedMotion() ? 0 : 220); };
+    const t = setTimeout(hide, type === 'err' ? 7000 : 3500);
+    el.addEventListener('click', () => { clearTimeout(t); hide(); });
   }
 
   function modal({ title, body, foot = '', wide = false, cls = '', onMount, onClose }) {
@@ -191,8 +285,9 @@
       ${foot ? `<div class="modal-foot">${foot}</div>` : ''}
     </div>`;
     const close = () => {
-      if (!root.isConnected) return;
-      root.remove(); document.removeEventListener('keydown', onKey);
+      if (!root.isConnected || root.classList.contains('closing')) return;
+      root.classList.add('closing'); document.removeEventListener('keydown', onKey);
+      setTimeout(() => root.remove(), reducedMotion() ? 0 : 170);
       if (onClose) onClose();
     };
     const onKey = (e) => { if (e.key === 'Escape') close(); };
@@ -418,10 +513,33 @@
     return PAGES.some((p) => p.id === id) ? id : 'dashboard';
   }
 
-  function setHeader(title, sub = '', actions = '') {
+  // keep = periodic redraw of the same page: buttons stay (listeners via on())
+  function setHeader(title, sub = '', actions = '', keep = false) {
     $('#pageTitle').textContent = title;
-    $('#pageSub').innerHTML = sub;
-    $('#pageActions').innerHTML = actions;
+    morph($('#pageSub'), sub);
+    if (keep) morph($('#pageActions'), actions); else $('#pageActions').innerHTML = actions;
+  }
+
+  // Page transitions: new content fades/slides in, list items and cards staggered.
+  // Triggered when real content (not the loading skeleton) lands in #content.
+  const STAGGER = ':scope > .grid > .card, :scope > .grid > a.card, .list > .list-item, tbody > tr, .nc-item, .box-card';
+  let pageAnimT = 0;
+  function pageIn(content) {
+    const skel = content.children.length === 1 && content.querySelector(':scope > .card > .card-body > .skeleton');
+    content.classList.remove('page-in');
+    void content.offsetWidth;
+    $$(STAGGER, content).slice(0, 30).forEach((n, i) => n.style.setProperty('--i', i));
+    content.classList.add('page-in');
+    clearTimeout(pageAnimT);
+    pageAnimT = setTimeout(() => content.classList.remove('page-in'), 1100);
+    return !skel;
+  }
+  function watchPageIn() {
+    const content = $('#content');
+    new MutationObserver(() => {
+      if (!S.pageAnim || !content.firstElementChild) return;
+      if (pageIn(content)) S.pageAnim = false;
+    }).observe(content, { childList: true });
   }
 
   function boxSelect(page, list) {
@@ -451,6 +569,9 @@
     renderNav();
     $('#app').classList.remove('nav-open');
     const content = $('#content');
+    S.pageAnim = true;
+    counts.clear();              // numbers count up from zero on a fresh page
+    S.chartAnimUntil = 0; S.volGrowUntil = null;
     content.innerHTML = '';
     window.scrollTo(0, 0);
     if (!S.overview) {
@@ -498,22 +619,22 @@
       const ov = S.overview;
       const router = mainRouter();
       const wan = router && router.wan;
-      setHeader('Übersicht', `${onlineBoxes().length} von ${boxes().length} Geräten erreichbar · aktualisiert ${ago(Math.max(...boxes().map((b) => b.updated || 0)))}`, refreshBtn);
-      $('#refreshBtn').addEventListener('click', (e) => withBusy(e.currentTarget, async () => { await loadOverview(true); draw(); }));
+      setHeader('Übersicht', `${onlineBoxes().length} von ${boxes().length} Geräten erreichbar · aktualisiert ${ago(Math.max(...boxes().map((b) => b.updated || 0)))}`, refreshBtn, true);
+      on($('#refreshBtn'), 'click', (e) => withBusy(e.currentTarget, async () => { await loadOverview(true); draw(); }));
       let missed = 0; let msgs = 0; let hasPhone = false; let hasTam = false;
       boxes().forEach((b) => { if (b.phone) { hasPhone = true; missed += b.phone.missed_24h || 0; if ('new_messages' in b.phone) { hasTam = true; msgs += b.phone.new_messages || 0; } } });
-      const kpi = (icon, cls, label, value, foot, href) => `<${href ? `a href="${href}"` : 'div'} class="card kpi" style="color:inherit;text-decoration:none">
+      const kpi = (icon, cls, label, value, foot, href, fl) => `<${href ? `a href="${href}"` : 'div'} class="card kpi" style="color:inherit;text-decoration:none"${fl != null ? ` data-flash="${fl}"` : ''}>
         <div class="kpi-label"><span class="kpi-icon ${cls}">${ic(icon)}</span>${label}</div>
         <div class="kpi-value">${value}</div><div class="kpi-foot">${foot}</div></${href ? 'a' : 'div'}>`;
-      const rateParts = (b) => { const s = fmtBits(b * 8).split(' '); return `${s[0]}<small>${s[1]}</small>`; };
+      const rateParts = (key, b) => { const s = fmtBits(b * 8).split(' '); return `${cnt(key, s[0], s[1])}<small>${s[1]}</small>`; };
       const wlanClients = onlineBoxes().reduce((n, b) => n + (b.wlan || []).reduce((m, w) => m + (w.clients || 0), 0), 0);
       const kpis = [
-        wan ? kpi('globe', wan.connected ? 'ok' : 'err', 'Internet', wan.connected ? 'Online' : 'Offline', esc(wan.external_ip || wan.status || '–')) : kpi('globe', '', 'Internet', '–', 'Keine Router-Box'),
-        wan ? kpi('arrowDown', '', 'Download', rateParts(wan.rate_down), `Leitung ${fmtBits(wan.dsl ? wan.dsl.down_kbit * 1000 : wan.max_down_bit)}`) : '',
-        wan ? kpi('arrowUp', 'up', 'Upload', rateParts(wan.rate_up), `Leitung ${fmtBits(wan.dsl ? wan.dsl.up_kbit * 1000 : wan.max_up_bit)}`) : '',
-        kpi('devices', '', 'Geräte online', ov.hosts_online != null ? `${ov.hosts_online}<small>/ ${ov.hosts_total}</small>` : '…', `${wlanClients} davon im WLAN`, '#/devices'),
-        hasPhone ? kpi('callMissed', missed ? 'err' : '', 'Verpasste Anrufe', missed, 'letzte 24 Stunden', '#/calls') : '',
-        hasTam ? kpi('voicemail', msgs ? 'warn' : '', 'Neue Nachrichten', msgs, 'Anrufbeantworter', '#/tam') : '',
+        wan ? kpi('globe', wan.connected ? 'ok' : 'err', 'Internet', wan.connected ? 'Online' : 'Offline', esc(wan.external_ip || wan.status || '–'), '', wan.connected ? 1 : 0) : kpi('globe', '', 'Internet', '–', 'Keine Router-Box'),
+        wan ? kpi('arrowDown', '', 'Download', rateParts('down', wan.rate_down), `Leitung ${fmtBits(wan.dsl ? wan.dsl.down_kbit * 1000 : wan.max_down_bit)}`) : '',
+        wan ? kpi('arrowUp', 'up', 'Upload', rateParts('up', wan.rate_up), `Leitung ${fmtBits(wan.dsl ? wan.dsl.up_kbit * 1000 : wan.max_up_bit)}`) : '',
+        kpi('devices', '', 'Geräte online', ov.hosts_online != null ? `${cnt('hosts', String(ov.hosts_online))}<small>/ ${ov.hosts_total}</small>` : '…', `${wlanClients} davon im WLAN`, '#/devices'),
+        hasPhone ? kpi('callMissed', missed ? 'err' : '', 'Verpasste Anrufe', cnt('missed', String(missed)), 'letzte 24 Stunden', '#/calls') : '',
+        hasTam ? kpi('voicemail', msgs ? 'warn' : '', 'Neue Nachrichten', cnt('msgs', String(msgs)), 'Anrufbeantworter', '#/tam') : '',
       ].join('');
 
       const conn = wan ? `<div class="card"><div class="card-head"><h2>Internetverbindung</h2>${wan.connected ? '<span class="badge ok">Verbunden</span>' : `<span class="badge err">${esc(wan.status || 'Getrennt')}</span>`}</div>
@@ -533,16 +654,16 @@
         </dl></div></div>` : '';
 
       const range = store.get('chartRange', '1h');
-      const chartCard = router ? `<div class="card"><div class="card-head" style="flex-wrap:wrap"><h2>Datendurchsatz <span class="sub">${esc(boxName(router))}</span></h2>
+      const chartCard = router ? `<div class="card"><div class="card-head" style="flex-wrap:wrap"><h2>Datendurchsatz <span class="sub">${esc(boxName(router))}</span>${range === '1h' ? '<span class="live" title="Wird laufend aktualisiert"><i></i>Live</span>' : ''}</h2>
           <div class="legend hide-sm"><span><i style="background:var(--down)"></i>Download</span><span><i style="background:var(--up)"></i>Upload</span></div>
           <div class="seg" id="chartRange">${[['1h', '1 Std'], ['24h', '24 Std'], ['7d', '7 Tage']].map(([k, l]) => `<button data-range="${k}" class="${range === k ? 'active' : ''}">${l}</button>`).join('')}</div></div>
-          <div class="card-body"><div class="chart" id="chart"></div></div></div>` : '';
+          <div class="card-body"><div class="chart" id="chart" data-keep></div></div></div>` : '';
 
       const boxCards = boxes().map((b) => {
         const info = b.info || {};
         const clients = (b.wlan || []).reduce((n, w) => n + (w.clients || 0), 0);
         const status = !b.config.enabled ? '<span class="badge">Deaktiviert</span>' : b.online ? '<span class="badge ok"><span class="dot ok" style="box-shadow:none;width:6px;height:6px"></span>Online</span>' : b.online === false ? '<span class="badge err">Offline</span>' : '<span class="badge">…</span>';
-        return `<div class="card box-card">
+        return `<div class="card box-card" data-key="box-${esc(b.config.id)}" data-flash="${b.online ? 1 : 0}">
           <div class="head">${boxAvatar(b)}
             <div class="grow" style="min-width:0;flex:1"><div class="title">${esc(boxName(b))} ${roleBadge(info)}</div><div class="meta muted" style="font-size:12.5px">${esc(info.model || b.config.host)}${info.firmware ? ` · FRITZ!OS ${esc(info.firmware)}` : ''}</div></div>${status}</div>
           ${b.online ? `<div class="stats">
@@ -553,21 +674,21 @@
         </div>`;
       }).join('');
 
-      el.innerHTML = `<div class="grid kpis">${kpis}</div>
+      render(el, `<div class="grid kpis">${kpis}</div>
         ${router ? `<div class="grid dash">${chartCard}${conn}</div>` : ''}
         ${router ? `<div class="card" style="margin-top:16px" id="volCard">${volumeHTML(S.vol && S.vol.id === router.config.id ? S.vol.data : null, router)}</div>` : ''}
         ${weakCard(ov)}
         ${lanNotice()}
         <div class="card-head" style="padding:26px 2px 12px"><h2>Mesh-Geräte</h2><a class="btn sm ghost" href="#/topology">${ic('topology')}Topologie</a></div>
-        <div class="grid cols-3">${boxCards}</div>`;
+        <div class="grid cols-3">${boxCards}</div>`);
       if (router) {
         routerChart(router);
         loadVolume(router);
-        $$('#chartRange button').forEach((b) => b.addEventListener('click', () => { store.set('chartRange', b.dataset.range); draw(); }));
+        $$('#chartRange button').forEach((b) => on(b, 'click', () => { store.set('chartRange', b.dataset.range); S.chartAnimUntil = Date.now() + 1500; draw(); }));
       }
-      const wl = $('[data-weak-filter]');
-      if (wl) wl.addEventListener('click', () => { store.set('devFilter', { ...store.get('devFilter', { q: '', sort: 'name', dir: 1 }), kind: 'weak', q: '', sort: 'signal', dir: 1 }); });
+      on($('[data-weak-filter]'), 'click', () => { store.set('devFilter', { ...store.get('devFilter', { q: '', sort: 'name', dir: 1 }), kind: 'weak', q: '', sort: 'signal', dir: 1 }); });
     };
+    S.chartAnimUntil = Date.now() + 1500;
     draw();
     // Host count for the KPI tile
     if (S.overview.hosts_online == null) {
@@ -588,7 +709,7 @@
     S.hist = S.hist || {};
     const cache = S.hist[range];
     const fresh = cache && cache.id === router.config.id;
-    if (fresh) drawChart(el, cache.data); else el.innerHTML = '<div class="empty" style="padding:90px 0">Verlauf wird geladen …</div>';
+    if (fresh) drawChart(el, cache.data); else morph(el, '<div class="empty" style="padding:90px 0">Verlauf wird geladen …</div>');
     if ((fresh && Date.now() - cache.at < 60000) || S.histLoading) return;
     S.histLoading = true;
     api(`history/${router.config.id}?range=${range}`)
@@ -609,7 +730,7 @@
       .then((data) => {
         S.vol = { id: router.config.id, at: Date.now(), data };
         const card = $('#volCard');
-        if (card) keepScroll(() => { card.innerHTML = volumeHTML(data, router); });
+        if (card) keepScroll(() => morph(card, volumeHTML(data, router)));
       })
       .catch(() => {})
       .finally(() => { S.volLoading = false; });
@@ -621,8 +742,11 @@
     const now = new Date();
     const monthName = (d) => d.toLocaleDateString('de-DE', { month: 'long' });
     const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const tile = (label, d) => `<div class="vol-tile"><div class="l">${label}</div><div class="v">${fmtBytes(d[0] + d[1])}</div>
-      <div class="s"><span style="color:var(--down)">↓ ${fmtBytes(d[0])}</span> · <span style="color:var(--up)">↑ ${fmtBytes(d[1])}</span></div></div>`;
+    // bars grow in once when the data first appears on the page
+    if (S.volGrowUntil == null) S.volGrowUntil = Date.now() + 1400;
+    const grow = Date.now() < S.volGrowUntil;
+    const tile = (label, d, key) => { const [n, u] = fmtBytes(d[0] + d[1]).split(' '); return `<div class="vol-tile"><div class="l">${label}</div><div class="v">${cnt(`vol-${key}`, n, u)} ${esc(u || '')}</div>
+      <div class="s"><span style="color:var(--down)">↓ ${fmtBytes(d[0])}</span> · <span style="color:var(--up)">↑ ${fmtBytes(d[1])}</span></div></div>`; };
     const days = v.days || [];
     const max = Math.max(1, ...days.map((d) => d[1] + d[2]));
     const bars = days.map(([day, down, up], i) => {
@@ -631,15 +755,15 @@
       const tip = `${label}: ${fmtBytes(down + up)} (↓ ${fmtBytes(down)} · ↑ ${fmtBytes(up)})`;
       const weekend = date.getDay() === 0 || date.getDay() === 6;
       const showLabel = i === 0 || i === days.length - 1 || date.getDate() === 1 || date.getDay() === 1;
-      return `<div class="vb ${weekend ? 'we' : ''}" title="${esc(tip)}"><div class="stack" style="height:${((down + up) / max) * 100}%">
+      return `<div class="vb ${weekend ? 'we' : ''}" title="${esc(tip)}" style="--i:${i}"><div class="stack" style="height:${((down + up) / max) * 100}%">
           <i class="u" style="flex:${up}"></i><i class="d" style="flex:${down}"></i></div>
         <span class="lbl">${showLabel ? date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) : ''}</span></div>`;
     }).join('');
     const since = v.since ? new Date(`${v.since}T12:00:00`).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : null;
     return `${head(`${esc(boxName(router))}${since ? ` · gezählt seit ${since}` : ''}`)}
       <div class="card-body">
-        <div class="vol-tiles">${tile('Heute', v.today)}${tile(`${monthName(now)}`, v.month)}${tile(`${monthName(prev)}`, v.prev_month)}</div>
-        ${days.length ? `<div class="vol-bars">${bars}</div>` : '<div class="empty" style="padding:30px 0">Daten werden gesammelt …</div>'}
+        <div class="vol-tiles">${tile('Heute', v.today, 'd')}${tile(`${monthName(now)}`, v.month, 'm')}${tile(`${monthName(prev)}`, v.prev_month, 'p')}</div>
+        ${days.length ? `<div class="vol-bars ${grow ? 'grow' : ''}">${bars}</div>` : '<div class="empty" style="padding:30px 0">Daten werden gesammelt …</div>'}
         <div class="faint" style="font-size:12px;margin-top:10px">Gezählt wird, solange FritzHub läuft. Die FRITZ!Box selbst zählt nur seit der letzten Neuverbindung.</div>
       </div>`;
   }
@@ -668,7 +792,7 @@
 
   function drawChart(el, pts) {
     if (!el) return;
-    if (pts.length < 2) { el.innerHTML = '<div class="empty" style="padding:70px 0">Daten werden gesammelt …</div>'; return; }
+    if (pts.length < 2) { morph(el, '<div class="empty" style="padding:70px 0">Daten werden gesammelt …</div>'); return; }
     const W = Math.max(300, el.clientWidth); const H = 220; const pad = { l: 64, r: 10, t: 10, b: 26 };
     const t0 = pts[0][0]; const t1 = pts[pts.length - 1][0];
     const max = niceMax(Math.max(...pts.map((p) => Math.max(p[1], p[2]) * 8)) * 1.1);
@@ -695,21 +819,25 @@
           : fmtTime(d);
       grid += `<text class="axis" x="${x(t)}" y="${H - 6}" text-anchor="${k === 0 ? 'start' : k === nT ? 'end' : 'middle'}">${label}</text>`;
     }
-    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px">
+    // lines draw themselves when the chart first appears (page load, range switch);
+    // later updates are morphed, so the paths glide to their new shape
+    const drawIn = !el.querySelector('svg') || Date.now() < (S.chartAnimUntil || 0);
+    if (drawIn && !el.querySelector('svg')) S.chartAnimUntil = Date.now() + 1500;
+    morph(el, `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px" class="${drawIn ? 'draw-in' : ''}">
       <defs>
         <linearGradient id="gDown" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--down)" stop-opacity=".28"/><stop offset="1" stop-color="var(--down)" stop-opacity="0"/></linearGradient>
         <linearGradient id="gUp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--up)" stop-opacity=".25"/><stop offset="1" stop-color="var(--up)" stop-opacity="0"/></linearGradient>
       </defs>
-      ${grid}
-      <path d="${area(1)}" fill="url(#gDown)"/><path d="${area(2)}" fill="url(#gUp)"/>
-      <path d="${line(1)}" fill="none" stroke="var(--down)" stroke-width="2" stroke-linejoin="round"/>
-      <path d="${line(2)}" fill="none" stroke="var(--up)" stroke-width="2" stroke-linejoin="round"/>
-      <g class="hover" style="display:none"><line y1="${pad.t}" y2="${H - pad.b}" stroke="var(--border-strong)" stroke-dasharray="3 3"/>
+      <g class="gl">${grid}</g>
+      <g class="series"><path class="ar" d="${area(1)}" fill="url(#gDown)"/><path class="ar" d="${area(2)}" fill="url(#gUp)"/>
+      <path class="ln" pathLength="1" d="${line(1)}" fill="none" stroke="var(--down)" stroke-width="2" stroke-linejoin="round"/>
+      <path class="ln" pathLength="1" d="${line(2)}" fill="none" stroke="var(--up)" stroke-width="2" stroke-linejoin="round"/></g>
+      <g class="hover" style="display:none" data-keep><line y1="${pad.t}" y2="${H - pad.b}" stroke="var(--border-strong)" stroke-dasharray="3 3"/>
       <circle r="4" fill="var(--down)" stroke="var(--surface)" stroke-width="2" class="c1"/><circle r="4" fill="var(--up)" stroke="var(--surface)" stroke-width="2" class="c2"/></g>
       <rect x="${pad.l}" y="0" width="${W - pad.l - pad.r}" height="${H}" fill="transparent" class="hit"/>
-    </svg><div class="tip" style="display:none"></div>`;
+    </svg><div class="tip" style="display:none" data-keep></div>`);
     const svg = el.querySelector('svg'); const g = svg.querySelector('.hover'); const tip = el.querySelector('.tip');
-    svg.querySelector('.hit').addEventListener('mousemove', (ev) => {
+    on(svg.querySelector('.hit'), 'mousemove', (ev) => {
       const r = svg.getBoundingClientRect(); const px = ((ev.clientX - r.left) / r.width) * W;
       const t = t0 + ((px - pad.l) / (W - pad.l - pad.r)) * (t1 - t0);
       let best = pts[0]; pts.forEach((p) => { if (Math.abs(p[0] - t) < Math.abs(best[0] - t)) best = p; });
@@ -721,7 +849,7 @@
       const bd = new Date(best[0] * 1000);
       tip.innerHTML = `<b>${t1 - t0 > 86400 ? `${bd.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })} ` : ''}${fmtTime(bd)}</b><br><span style="color:var(--down)">↓ ${fmtBits(best[1] * 8, 1)}</span> · <span style="color:var(--up)">↑ ${fmtBits(best[2] * 8, 1)}</span>`;
     });
-    svg.querySelector('.hit').addEventListener('mouseleave', () => { g.style.display = 'none'; tip.style.display = 'none'; });
+    on(svg.querySelector('.hit'), 'mouseleave', () => { g.style.display = 'none'; tip.style.display = 'none'; });
   }
 
   // ---------------------------------------------------------------- devices
@@ -773,7 +901,7 @@
             ${h.connected_to ? `<span class="muted" style="font-size:12.5px">${esc(h.connected_to)}</span>` : ''}</div>` : '<span class="faint">–</span>';
         const rate = h.active ? (h.wlan_speed ? fmtBits(h.wlan_speed * 1e6) : h.link_rate ? fmtKbit(h.link_rate) : h.speed ? fmtBits(h.speed * 1e6) : '–') : '–';
         const canBlock = h.ip && h.wan_blocked !== null && h.wan_blocked !== undefined;
-        return `<tr class="${h.active ? '' : 'offline'}">
+        return `<tr class="${h.active ? '' : 'offline'}" data-key="${esc(h.mac || `ip-${h.ip}`)}" data-flash="${h.active ? 1 : 0}">
           <td><div class="cell-main clickable" data-detail="${esc(h.mac)}" title="Details anzeigen"><div class="avatar ${h.active ? (wl ? 'wlan' : 'lan') : ''}">${ic(deviceIcon(h))}</div>
             <div style="min-width:0"><div class="t">${esc(h.name || h.mac || 'Unbekannt')}${webBadges(h.web)}${h.roams_24h >= PINGPONG ? ` <span class="badge warn" title="${h.roams_24h} Wechsel zwischen Zugangspunkten in 24 Stunden">springt</span>` : ''}${isNew(h) ? ` <span class="badge accent" title="Erstmals erkannt ${fmtDateTime(h.new_since)}">Neu</span>` : ''}${h.guest ? ' <span class="badge">Gast</span>' : ''}${h.wan_blocked ? ' <span class="badge err">Gesperrt</span>' : ''}</div>
             <div class="faint" style="font-size:12px">${h.active ? '<span class="dot ok" style="width:6px;height:6px;box-shadow:none;margin-right:5px;vertical-align:1px"></span>Online' : 'Offline'}${h.model ? ` · ${esc(h.model)}` : ''}</div></div></div></td>
@@ -793,32 +921,33 @@
           <td class="sticky-end"><div class="actions">${h.mac ? `<button class="icon-btn ${h.watched ? 'watch-on' : ''}" title="${h.watched ? 'Wird beobachtet – klicken zum Beenden' : 'Beobachten: Meldung, wenn das Gerät offline geht'}" data-watch="${esc(h.mac)}">${ic('bell')}</button><button class="icon-btn" title="Umbenennen" data-rename-host="${esc(h.mac)}">${ic('edit')}</button>` : ''}</div></td>
         </tr>`;
       }).join('');
-      el.innerHTML = `<div class="toolbar">
+      render(el, `<div class="toolbar">
           <div class="input-icon search">${ic('search')}<input class="input" id="q" placeholder="Name, IP, MAC, Hersteller …" value="${esc(f.q)}"></div>
           <div class="seg" id="kinds">${Object.entries(kinds).filter(([k]) => counts[k] || k === 'all' || k === 'online').map(([k, v]) => `<button data-kind="${k}" class="${f.kind === k ? 'active' : ''}">${v[0]} <span class="n">${counts[k]}</span></button>`).join('')}</div>
         </div>
         <div class="card"><div class="table-wrap"><table class="table">
           <thead><tr>${th('name', 'Gerät')}${th('ip', 'IP-Adresse')}<th class="hide-md" style="cursor:default">MAC</th>${th('vendor', 'Hersteller', 'hide-sm')}${th('conn', 'Verbunden über')}${th('signal', 'Signal')}${th('speed', 'Rate', 'hide-lg')}${th('seen', 'Zuletzt gesehen', 'hide-sm')}<th style="cursor:default">Internet</th><th class="sticky-end"></th></tr></thead>
           <tbody>${rows || `<tr><td colspan="10">${empty('search', 'Keine Geräte gefunden', 'Passe Suche oder Filter an.')}</td></tr>`}</tbody>
-        </table></div></div>`;
+        </table></div></div>`);
       const qi = $('#q');
-      qi.addEventListener('input', () => { f.q = qi.value; store.set('devFilter', f); const pos = qi.selectionStart; draw(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); });
-      $$('#kinds button').forEach((b) => b.addEventListener('click', () => { f.kind = b.dataset.kind; store.set('devFilter', f); draw(); }));
-      $$('th[data-sort]').forEach((t) => t.addEventListener('click', () => { if (f.sort === t.dataset.sort) f.dir *= -1; else { f.sort = t.dataset.sort; f.dir = 1; } store.set('devFilter', f); draw(); }));
-      $$('[data-detail]').forEach((c) => c.addEventListener('click', (e) => {
+      on(qi, 'input', () => { f.q = qi.value; store.set('devFilter', f); draw(); });
+      $$('#kinds button').forEach((b) => on(b, 'click', () => { f.kind = b.dataset.kind; store.set('devFilter', f); draw(); }));
+      $$('th[data-sort]').forEach((t) => on(t, 'click', () => { if (f.sort === t.dataset.sort) f.dir *= -1; else { f.sort = t.dataset.sort; f.dir = 1; } store.set('devFilter', f); draw(); }));
+      $$('[data-detail]').forEach((c) => on(c, 'click', (e) => {
         if (e.target.closest('a, button, [data-stop]')) return;
         openDeviceDetail(c.dataset.detail, draw);
       }));
-      $$('[data-watch]').forEach((b) => b.addEventListener('click', async () => {
+      $$('[data-watch]').forEach((b) => on(b, 'click', async () => {
         const h = S.hosts.find((x) => x.mac === b.dataset.watch);
         if (!h) return;
         try {
           await setWatched(h, !h.watched);
           toast(h.watched ? `${h.name || h.mac} wird beobachtet.` : `Beobachtung von ${h.name || h.mac} beendet.`);
           draw();
+          if (h.watched) ring($(`[data-watch="${CSS.escape(h.mac)}"]`));
         } catch (e) { toast(e.message, 'err'); }
       }));
-      $$('[data-rename-host]').forEach((b) => b.addEventListener('click', () => {
+      $$('[data-rename-host]').forEach((b) => on(b, 'click', () => {
         const h = S.hosts.find((x) => x.mac === b.dataset.renameHost);
         if (!h) return;
         modal({
@@ -842,7 +971,7 @@
           },
         });
       }));
-      $$('[data-wan]').forEach((c) => c.addEventListener('change', async () => {
+      $$('[data-wan]').forEach((c) => on(c, 'change', async () => {
         const allow = c.checked; const ip = c.dataset.wan;
         if (!allow && !(await confirmDialog('Internetzugang sperren?', `Das Gerät <b>${esc(ip)}</b> kann danach nicht mehr ins Internet. Das Heimnetz bleibt erreichbar.`, { ok: 'Sperren', danger: true }))) { c.checked = true; return; }
         c.disabled = true;
@@ -1055,7 +1184,14 @@
     </div>`;
     const svg = $('#topoSvg'); const vp = $('#vp');
     let bounds = null;
-    const apply = () => vp.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`);
+    // CSS transform, so zoom buttons and "fit" glide (dragging/wheel stay direct)
+    const apply = () => { vp.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.k})`; };
+    let instantT = 0;
+    const instant = (ms = 0) => {
+      svg.classList.add('no-anim');
+      clearTimeout(instantT);
+      instantT = setTimeout(() => svg.classList.remove('no-anim'), ms);
+    };
     const fit = () => {
       if (!bounds) return;
       const r = svg.getBoundingClientRect(); const pad = 60;
@@ -1073,7 +1209,7 @@
       const infra = S.topo.nodes.filter((n) => n.infrastructure).length;
       const clients = S.topo.nodes.length - infra;
       $('#topoCount').textContent = `${infra} Mesh-Knoten · ${clients} Endgeräte`;
-      if (refit || !view) fit(); else apply();
+      if (!view) { instant(50); fit(); } else if (refit) fit(); else apply();
     };
 
     const clientRow = (c) => {
@@ -1090,10 +1226,16 @@
       tree && tree.T.forEach((t) => { if (t.children.some((c) => c.node.id === id)) name = t.node.name; });
       return name;
     };
+    const closeDetail = () => {
+      const panel = $('#detail .topo-detail');
+      if (!panel) return;
+      panel.classList.add('leaving');
+      setTimeout(() => { if (panel.isConnected && panel.classList.contains('leaving')) panel.remove(); }, reducedMotion() ? 0 : 200);
+    };
     const showDetail = (id) => {
       selected = id; draw(false);
       const n = S.topo.nodes.find((x) => x.id === id);
-      if (!n) { $('#detail').innerHTML = ''; return; }
+      if (!n) { closeDetail(); return; }
       let body = '';
       if (n.infrastructure) {
         const t = tree && tree.T.get(id);
@@ -1136,9 +1278,11 @@
           ${webButtons(n.web)}
           ${ap ? `<button class="btn sm" style="margin-top:14px;width:100%" data-client="${esc(ap.id)}">${ic(/repeater/i.test(ap.model || '') ? 'repeater' : 'router')}Zu ${esc(ap.name)}</button>` : ''}</div>`;
       }
-      $('#detail').innerHTML = `<div class="card topo-detail">
+      const det = $('#detail');
+      const fresh = !det.querySelector('.topo-detail:not(.leaving)');
+      det.innerHTML = `<div class="card topo-detail ${fresh ? 'slide-in' : ''}">
         <div class="card-head"><h2>${esc(n.name)}</h2><button class="icon-btn" id="closeDetail">${ic('x')}</button></div>${body}</div>`;
-      $('#closeDetail').addEventListener('click', () => { selected = null; $('#detail').innerHTML = ''; draw(false); });
+      $('#closeDetail').addEventListener('click', () => { selected = null; closeDetail(); draw(false); });
       $$('#detail [data-client]').forEach((r) => r.addEventListener('click', () => showDetail(r.dataset.client)));
     };
     draw(true);
@@ -1169,6 +1313,7 @@
     };
     svg.addEventListener('wheel', (e) => {
       e.preventDefault();
+      instant(150);
       const r = svg.getBoundingClientRect();
       zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
     }, { passive: false });
@@ -1325,6 +1470,11 @@
 
   // Device details -------------------------------------------------------------
   const PINGPONG = 6;  // roams per 24 h (same threshold as the backend)
+  function ring(btn) {
+    if (!btn) return;
+    btn.classList.remove('ring'); void btn.offsetWidth; btn.classList.add('ring');
+    setTimeout(() => btn.classList.remove('ring'), 900);
+  }
   async function setWatched(h, watched) {
     await api('watch', { method: 'POST', body: { mac: h.mac, watched } });
     h.watched = watched;
@@ -2056,13 +2206,30 @@
   async function renderSettings(el, token) {
     const q = new URLSearchParams(location.hash.split('?')[1] || '');
     let tab = q.get('tab') || store.get('settingsTab', 'boxes');
-    if (!['boxes', 'notify'].includes(tab)) tab = 'boxes';
+    if (!['boxes', 'notify', 'look'].includes(tab)) tab = 'boxes';
     store.set('settingsTab', tab);
-    el.innerHTML = `<div class="seg" id="setTabs" style="margin-bottom:16px">${[['boxes', 'router', 'Boxen & Zugänge'], ['notify', 'bell', 'Benachrichtigungen']]
+    el.innerHTML = `<div class="seg" id="setTabs" style="margin-bottom:16px">${[['boxes', 'router', 'Boxen & Zugänge'], ['notify', 'bell', 'Benachrichtigungen'], ['look', 'palette', 'Darstellung']]
       .map(([k, icon, label]) => `<button data-tab="${k}" class="${tab === k ? 'active' : ''}">${ic(icon)}${label}</button>`).join('')}</div><div id="setBody"></div>`;
     $$('#setTabs button').forEach((b) => b.addEventListener('click', () => { if (b.dataset.tab !== tab) location.hash = `#/settings?tab=${b.dataset.tab}`; }));
     const body = $('#setBody');
-    if (tab === 'boxes') await renderBoxes(body); else await renderNotifications(body, token);
+    if (tab === 'boxes') await renderBoxes(body); else if (tab === 'look') renderLook(body); else await renderNotifications(body, token);
+  }
+
+  // Appearance: light/dark and accent colour (stored per browser)
+  function renderLook(el) {
+    setHeader('Einstellungen', 'Design und Akzentfarbe');
+    const draw = () => {
+      const theme = store.get('theme', 'auto'); const accent = store.get('accent', 'blue');
+      morph(el, `<div class="card"><div class="card-head"><h2>Design</h2></div><div class="card-body">
+          <div class="seg" id="lookTheme">${THEMES.map(([k, icon, label]) => `<button data-theme-set="${k}" class="${theme === k ? 'active' : ''}">${ic(icon)}${esc(label.replace('Design: ', '').replace(/^./, (c) => c.toUpperCase()))}</button>`).join('')}</div>
+          <p class="faint" style="font-size:12.5px;margin:10px 0 0">„Automatisch“ folgt der Einstellung von Betriebssystem bzw. Browser.</p></div></div>
+        <div class="card" style="margin-top:16px"><div class="card-head"><h2>Akzentfarbe</h2></div><div class="card-body">
+          <div class="swatches">${Object.entries(ACCENTS).map(([k, a]) => `<button class="swatch ${accent === k ? 'active' : ''}" data-accent="${k}" style="--sw:${a[1]}" title="${esc(a[0])}" aria-pressed="${accent === k}"><i>${ic('check')}</i><span>${esc(a[0])}</span></button>`).join('')}</div>
+          <p class="faint" style="font-size:12.5px;margin:12px 0 0">Gilt für Schaltflächen, Markierungen und Hervorhebungen. Die Einstellung wird in diesem Browser gespeichert.</p></div></div>`);
+      $$('[data-theme-set]', el).forEach((b) => on(b, 'click', () => { setTheme(b.dataset.themeSet); draw(); }));
+      $$('[data-accent]', el).forEach((b) => on(b, 'click', () => { store.set('accent', b.dataset.accent); withTransition(applyAccent); draw(); }));
+    };
+    draw();
   }
 
   async function renderNotifications(el, token) {
@@ -2274,15 +2441,56 @@ actions:
     if (t === 'auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t);
     const def = THEMES.find((x) => x[0] === t);
     $('#themeToggle').innerHTML = `${ic(def[1])}<span>${def[2]}</span>`;
+    applyAccent();
+  }
+  // smooth cross-fade between old and new look where the browser supports it
+  function withTransition(fn) {
+    if (document.startViewTransition && !reducedMotion()) document.startViewTransition(fn); else fn();
+  }
+  function setTheme(t) {
+    store.set('theme', t);
+    withTransition(() => applyTheme(t));
+  }
+
+  // name, light accent, light hover, dark accent, dark hover
+  const ACCENTS = {
+    blue: ['Blau', '#2563eb', '#1d4ed8', '#5b8cff', '#7aa2ff'],
+    teal: ['Türkis', '#0d9488', '#0f766e', '#2dd4bf', '#5eead4'],
+    green: ['Grün', '#16a34a', '#15803d', '#4ade80', '#86efac'],
+    violet: ['Violett', '#7c3aed', '#6d28d9', '#a78bfa', '#c4b5fd'],
+    orange: ['Orange', '#ea580c', '#c2410c', '#fb923c', '#fdba74'],
+    pink: ['Pink', '#db2777', '#be185d', '#f472b6', '#f9a8d4'],
+  };
+  const isDark = () => {
+    const t = document.documentElement.getAttribute('data-theme');
+    return t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  };
+  function applyAccent() {
+    const name = store.get('accent', 'blue');
+    const st = document.documentElement.style;
+    const a = ACCENTS[name];
+    if (!a || name === 'blue') { ['--accent', '--accent-2', '--accent-soft'].forEach((v) => st.removeProperty(v)); return; }
+    const dark = isDark();
+    const c = dark ? a[3] : a[1];
+    st.setProperty('--accent', c);
+    st.setProperty('--accent-2', dark ? a[4] : a[2]);
+    st.setProperty('--accent-soft', `color-mix(in srgb, ${c} ${dark ? 16 : 11}%, transparent)`);
   }
 
   // ------------------------------------------------------------------- boot
   function boot() {
     // ?theme=dark|light overrides the stored preference (used for screenshots)
     const forced = new URLSearchParams(location.search).get('theme');
-    let theme = THEMES.some((x) => x[0] === forced) ? forced : store.get('theme', 'auto');
-    applyTheme(theme);
-    $('#themeToggle').addEventListener('click', () => { const i = THEMES.findIndex((x) => x[0] === theme); theme = THEMES[(i + 1) % THEMES.length][0]; store.set('theme', theme); applyTheme(theme); });
+    applyTheme(THEMES.some((x) => x[0] === forced) ? forced : store.get('theme', 'auto'));
+    $('#themeToggle').addEventListener('click', () => {
+      const cur = document.documentElement.getAttribute('data-theme') || 'auto';
+      const i = THEMES.findIndex((x) => x[0] === cur);
+      const next = THEMES[(i + 1) % THEMES.length][0];
+      setTheme(next);
+      $$('[data-theme-set]').forEach((b) => b.classList.toggle('active', b.dataset.themeSet === next));
+    });
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyAccent);
+    watchPageIn();
     $('#menuBtn').innerHTML = ic('menu');
     $('#starLink').innerHTML = `${ic('star')}<span>Auf GitHub bewerten</span>`;
     $('#feedbackLink').innerHTML = `${ic('message')}<span>Feedback &amp; Fehler melden</span>`;
