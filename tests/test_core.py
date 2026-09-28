@@ -69,10 +69,55 @@ def test_nas_norm(raw, expected):
 
 def test_nas_list_line():
     entry = _parse_list_line("drwxr-xr-x   1 ftp ftp        0 Sep 28 12:00 Fotos")
-    assert entry == {"name": "Fotos", "dir": True, "size": 0, "modified": None}
+    assert entry["name"] == "Fotos" and entry["dir"] and entry["size"] == 0
+    assert entry["modified"].endswith("-09-28T12:00:00")
     entry = _parse_list_line("-rw-r--r--   1 ftp ftp     1234 Jan  3  2025 Datei mit Leerzeichen.pdf")
     assert entry["name"] == "Datei mit Leerzeichen.pdf" and entry["size"] == 1234
+    assert entry["modified"] == "2025-01-03T00:00:00"
+    # fewer columns (no link count / group) and names with spaces
+    entry = _parse_list_line("drwxrwxrwx ftp 4096 Mar 10 08:15 Intenso USB")
+    assert entry["name"] == "Intenso USB" and entry["dir"]
     assert _parse_list_line("total 3") is None
+    assert _parse_list_line("drwxr-xr-x 1 ftp ftp 0 Sep 28 12:00 ..") is None
+
+
+def test_nas_list_line_dos():
+    entry = _parse_list_line("09-28-26  12:05PM       <DIR>          Fotos")
+    assert entry == {"name": "Fotos", "dir": True, "size": None, "modified": "2026-09-28T12:05:00"}
+    entry = _parse_list_line("01-03-25  08:00AM             1234 Rechnung.pdf")
+    assert entry["size"] == 1234 and not entry["dir"]
+
+
+class _FakeFtp:
+    """Mimics the FRITZ!Box FTP server: no MLST in FEAT, LIST only."""
+
+    def __init__(self):
+        self.cwd_path = None
+        self.commands = []
+
+    def sendcmd(self, cmd):
+        self.commands.append(cmd)
+        return "211- Extensions supported:\n UTF8\n MDTM\n SIZE\n211 end"
+
+    def mlsd(self, *args, **kwargs):  # pragma: no cover - must not be called
+        raise AssertionError("MLSD must not be used")
+
+    def cwd(self, path):
+        self.cwd_path = path
+
+    def retrlines(self, cmd, callback):
+        self.commands.append(cmd)
+        callback("drwxr-xr-x 1 ftp ftp 0 Sep 28 12:00 Intenso USB")
+
+
+def test_nas_uses_list_when_mlsd_unsupported():
+    from fritzhub.config import BoxConfig
+    from fritzhub.nas import FritzNas
+
+    ftp = _FakeFtp()
+    entries = FritzNas(BoxConfig(host="x"))._listdir(ftp, "/")
+    assert [e["name"] for e in entries] == ["Intenso USB"]
+    assert ftp.cwd_path == "/" and "LIST" in ftp.commands
 
 
 def _wav(fmt_tag: int, bits: int, payload: bytes) -> bytes:

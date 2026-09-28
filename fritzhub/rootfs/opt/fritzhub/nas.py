@@ -39,6 +39,7 @@ class FritzNas:
     def __init__(self, cfg: BoxConfig) -> None:
         self.cfg = cfg
         self._tls_ok: bool | None = None  # remember whether FTPS works
+        self._mlsd: bool | None = None  # remember whether MLSD is supported
 
     def _connect(self) -> ftplib.FTP:
         errors = []
@@ -94,38 +95,35 @@ class FritzNas:
         path = norm(path)
 
         def op(ftp: ftplib.FTP) -> list[dict[str, Any]]:
-            entries = []
-            try:
-                for name, facts in ftp.mlsd(path, facts=["type", "size", "modify"]):
-                    kind = facts.get("type", "")
-                    if kind in ("cdir", "pdir") or name in (".", ".."):
-                        continue
-                    modified = None
-                    if facts.get("modify"):
-                        try:
-                            modified = datetime.strptime(
-                                facts["modify"][:14], "%Y%m%d%H%M%S"
-                            ).isoformat()
-                        except ValueError:
-                            pass
-                    entries.append(
-                        {
-                            "name": name,
-                            "dir": kind == "dir",
-                            "size": int(facts["size"]) if facts.get("size") else None,
-                            "modified": modified,
-                        }
-                    )
-            except ftplib.error_perm as err:
-                if not str(err).startswith("500") and not str(err).startswith("502"):
-                    raise
-                lines: list[str] = []
-                ftp.retrlines(f"LIST {path}", lines.append)
-                entries = [e for e in (_parse_list_line(line) for line in lines) if e]
+            entries = self._listdir(ftp, path)
             entries.sort(key=lambda e: (not e["dir"], e["name"].lower()))
             return entries
 
         return self._run(op)
+
+    def _has_mlsd(self, ftp: ftplib.FTP) -> bool:
+        """MLSD only if the server announces MLST (the FRITZ!Box does not)."""
+        if self._mlsd is None:
+            try:
+                self._mlsd = "MLST" in ftp.sendcmd("FEAT").upper()
+            except ftplib.Error:
+                self._mlsd = False
+        return self._mlsd
+
+    def _listdir(self, ftp: ftplib.FTP, path: str) -> list[dict[str, Any]]:
+        if self._has_mlsd(ftp):
+            try:
+                return _mlsd_entries(ftp, path)
+            except ftplib.error_perm:
+                self._mlsd = False  # announced but not usable – fall back to LIST
+        # CWD + plain LIST: path arguments of LIST break on names with spaces
+        ftp.cwd(path)
+        lines: list[str] = []
+        ftp.retrlines("LIST", lines.append)
+        entries = [e for e in (_parse_list_line(line) for line in lines) if e]
+        if lines and not entries:
+            _LOGGER.warning("Unbekanntes LIST-Format: %r", lines[:3])
+        return entries
 
     # -------------------------------------------------------------- transfer
     def download(
@@ -184,7 +182,7 @@ class FritzNas:
             raise NasError("Das Wurzelverzeichnis kann nicht gelöscht werden.")
 
         def rm_tree(ftp: ftplib.FTP, target: str) -> None:
-            for entry in _list_raw(ftp, target):
+            for entry in self._listdir(ftp, target):
                 child = posixpath.join(target, entry["name"])
                 if entry["dir"]:
                     rm_tree(ftp, child)
@@ -219,37 +217,90 @@ class _QueueReader:
 
 EOF = _EOF
 
-_LIST_RE = re.compile(
-    r"^(?P<perm>[\-dl][rwxsStT\-]{9})\s+\S+\s+\S+\s+\S+\s+(?P<size>\d+)\s+"
-    r"(?P<date>\w{3}\s+\d{1,2}\s+(?:\d{2}:\d{2}|\d{4}))\s+(?P<name>.+)$"
+# Unix style: "drwxr-xr-x 1 owner group 4096 Sep 28 12:00 name" – the number of
+# columns between permissions and size differs between servers, so allow 1–3.
+_UNIX_RE = re.compile(
+    r"^(?P<perm>[\-dlcbps][rwxsStT\-]{9})\S*\s+(?:\S+\s+){1,3}?(?P<size>\d+)\s+"
+    r"(?P<mon>[A-Za-z]{3})\s+(?P<day>\d{1,2})\s+(?P<time>\d{1,2}:\d{2}|\d{4})\s(?P<name>.+)$"
 )
+# MS-DOS style: "09-28-26  12:00PM  <DIR>  name" / "09-28-26  12:00PM  1234 name"
+_DOS_RE = re.compile(
+    r"^(?P<date>\d{2}-\d{2}-\d{2,4})\s+(?P<time>\d{1,2}:\d{2}[AP]M)\s+"
+    r"(?:(?P<dir><DIR>)|(?P<size>\d+))\s+(?P<name>.+)$"
+)
+_MONTHS = {m: i for i, m in enumerate(
+    ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1
+)}
+
+
+def _unix_date(mon: str, day: str, time_or_year: str) -> str | None:
+    month = _MONTHS.get(mon.lower())
+    if not month:
+        return None
+    try:
+        if ":" in time_or_year:
+            hour, minute = (int(x) for x in time_or_year.split(":"))
+            now = datetime.now()
+            stamp = datetime(now.year, month, int(day), hour, minute)
+            if stamp > now:  # "Dec 31 23:00" seen in January belongs to last year
+                stamp = stamp.replace(year=now.year - 1)
+        else:
+            stamp = datetime(int(time_or_year), month, int(day))
+    except ValueError:
+        return None
+    return stamp.isoformat()
 
 
 def _parse_list_line(line: str) -> dict[str, Any] | None:
-    match = _LIST_RE.match(line)
-    if not match:
-        return None
-    name = match["name"]
-    if name in (".", ".."):
-        return None
-    if match["perm"].startswith("l") and " -> " in name:
-        name = name.split(" -> ")[0]
-    return {
-        "name": name,
-        "dir": match["perm"].startswith("d"),
-        "size": int(match["size"]),
-        "modified": None,
-    }
+    line = line.rstrip("\r\n")
+    match = _UNIX_RE.match(line)
+    if match:
+        name = match["name"]
+        if match["perm"].startswith("l") and " -> " in name:
+            name = name.split(" -> ")[0]
+        entry = {
+            "name": name,
+            "dir": match["perm"].startswith("d"),
+            "size": int(match["size"]),
+            "modified": _unix_date(match["mon"], match["day"], match["time"]),
+        }
+    else:
+        match = _DOS_RE.match(line)
+        if not match:
+            return None
+        try:
+            fmt = "%m-%d-%y %I:%M%p" if len(match["date"]) == 8 else "%m-%d-%Y %I:%M%p"
+            modified = datetime.strptime(f"{match['date']} {match['time']}", fmt).isoformat()
+        except ValueError:
+            modified = None
+        entry = {
+            "name": match["name"],
+            "dir": bool(match["dir"]),
+            "size": int(match["size"]) if match["size"] else None,
+            "modified": modified,
+        }
+    return None if entry["name"] in (".", "..") else entry
 
 
-def _list_raw(ftp: ftplib.FTP, path: str) -> list[dict[str, Any]]:
-    try:
-        return [
-            {"name": n, "dir": f.get("type") == "dir"}
-            for n, f in ftp.mlsd(path, facts=["type"])
-            if f.get("type") not in ("cdir", "pdir") and n not in (".", "..")
-        ]
-    except ftplib.error_perm:
-        lines: list[str] = []
-        ftp.retrlines(f"LIST {path}", lines.append)
-        return [e for e in (_parse_list_line(line) for line in lines) if e]
+def _mlsd_entries(ftp: ftplib.FTP, path: str) -> list[dict[str, Any]]:
+    entries = []
+    # no facts argument: "OPTS MLST ..." is rejected by some servers (501)
+    for name, facts in ftp.mlsd(path):
+        kind = facts.get("type", "")
+        if kind in ("cdir", "pdir") or name in (".", ".."):
+            continue
+        modified = None
+        if facts.get("modify"):
+            try:
+                modified = datetime.strptime(facts["modify"][:14], "%Y%m%d%H%M%S").isoformat()
+            except ValueError:
+                pass
+        entries.append(
+            {
+                "name": name,
+                "dir": kind == "dir",
+                "size": int(facts["size"]) if facts.get("size", "").isdigit() else None,
+                "modified": modified,
+            }
+        )
+    return entries

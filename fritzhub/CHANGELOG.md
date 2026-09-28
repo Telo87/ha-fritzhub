@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.5
+
+- FRITZ!NAS: Verzeichnisse werden per LIST gelesen, wenn der FTP-Server kein MLSD unterstützt (FRITZ!Box: „501 Feature MLST … not supported“)
+- Ordner mit Leerzeichen im Namen (z. B. USB-Sticks) werden korrekt geöffnet
+- Änderungsdatum der Dateien wird auch bei LIST angezeigt
+
 ## 1.0.4
 
 - FRITZ!OS-Version ohne Hardware-Kennung anzeigen (z. B. „8.40“ statt „272.08.40“)
