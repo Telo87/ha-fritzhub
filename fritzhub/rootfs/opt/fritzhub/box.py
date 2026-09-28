@@ -49,6 +49,16 @@ def format_firmware(display: str | None) -> str | None:
     return display
 
 
+def signal_percent(value: Any) -> int | None:
+    """X_AVM-DE_SignalStrength is a percentage; convert dBm just in case."""
+    raw = _int(value)
+    if raw is None:
+        return None
+    if raw < 0:  # dBm: -100 (unusable) … -50 (excellent)
+        raw = 2 * (raw + 100)
+    return max(0, min(100, raw))
+
+
 class BoxError(Exception):
     """Error that is shown to the user."""
 
@@ -338,6 +348,37 @@ class FritzBox:
                 }
             )
         return result
+
+    def wlan_clients(self, bands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """WLAN devices associated with *this* box incl. signal strength.
+
+        ``bands`` is the result of :meth:`wlan` (only bands with clients are queried).
+        """
+        clients = []
+        for band in bands:
+            if not band.get("enabled") or not band.get("clients"):
+                continue
+            svc = f"WLANConfiguration{band['index']}"
+            for idx in range(int(band["clients"])):
+                try:
+                    dev = self.call(svc, "GetGenericAssociatedDeviceInfo", NewAssociatedDeviceIndex=idx)
+                except BoxError as err:
+                    _LOGGER.debug("%s %s #%d: %s", self.cfg.host, svc, idx, err)
+                    break
+                mac = (dev.get("NewAssociatedDeviceMACAddress") or "").upper()
+                if not mac:
+                    continue
+                clients.append(
+                    {
+                        "mac": mac,
+                        "ip": dev.get("NewAssociatedDeviceIPAddress") or None,
+                        "signal": signal_percent(dev.get("NewX_AVM-DE_SignalStrength")),
+                        "speed": _int(dev.get("NewX_AVM-DE_Speed")),  # Mbit/s
+                        "band": band.get("band"),
+                        "guest": band.get("guest", False),
+                    }
+                )
+        return clients
 
     def wlan_set_enable(self, index: int, enable: bool) -> None:
         self.call(f"WLANConfiguration{index}", "SetEnable", NewEnable=int(enable))

@@ -151,6 +151,19 @@ class DemoBox(FritzBox):
             })
         return result
 
+    def wlan_clients(self, bands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        signals = {"Mähroboter": 14, "Shelly-Plug-Garage": 29, "ESP-Wetterstation": 38, "Brother-Drucker": 47,
+                   "Echo-Dot": 55, "Sonos-Kueche": 61, "Pixel-8-Tom": 66}
+        result = []
+        for i, (name, _model, iface, parent, band) in enumerate(CLIENTS):
+            if parent != self.cfg.host or iface == "Ethernet":
+                continue
+            signal = signals.get(name, 70 + (i * 7) % 28)
+            result.append({"mac": _mac(i), "ip": None, "signal": signal,
+                           "speed": max(6, int(signal * (12 if band == "5 GHz" else 3))),
+                           "band": band, "guest": False})
+        return result
+
     def wlan_set_enable(self, index: int, enable: bool) -> None:
         self._wlan[index] = enable
 

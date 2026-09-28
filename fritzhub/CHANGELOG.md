@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0
+
+- Neu: Signalstärke aller WLAN-Geräte – abgefragt bei der Box bzw. dem Repeater, mit dem das Gerät verbunden ist
+- Übersicht: Karte „Schwächste WLAN-Verbindungen“ (Top 5)
+- Geräte: Spalte „Signal“ (sortierbar) und Filter „Schwaches WLAN“ (unter 40 %)
+
 ## 1.0.6
 
 - Automatische Aktualisierung springt nicht mehr an den Seitenanfang zurück

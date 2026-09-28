@@ -187,3 +187,10 @@ def test_format_firmware(raw, expected):
     from fritzhub.box import format_firmware
 
     assert format_firmware(raw) == expected
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("70", 70), (35, 35), ("-60", 80), ("-100", 0), ("150", 100), (None, None)])
+def test_signal_percent(raw, expected):
+    from fritzhub.box import signal_percent
+
+    assert signal_percent(raw) == expected

@@ -20,6 +20,7 @@ HISTORY_POINTS = 360  # e.g. 1 hour at 10 s interval
 MESH_TTL = 30
 HOSTS_TTL = 15
 PHONE_POLL = 60
+WLAN_POLL = 30
 
 
 class Hub:
@@ -43,6 +44,8 @@ class Hub:
         self._hosts_cache: tuple[float, list[dict[str, Any]]] | None = None
         self._last_phone_poll = 0.0
         self._mesh_roles: dict[str, str] = {}
+        self.wlan_clients: dict[str, dict[str, Any]] = {}
+        self._last_wlan_poll = 0.0
         self._task: asyncio.Task | None = None
         self._wake = asyncio.Event()
         self.publisher = SensorPublisher()
@@ -172,6 +175,9 @@ class Hub:
         await self._apply_mesh_roles()
         self._demote_mesh_boxes()
 
+        if now - self._last_wlan_poll > WLAN_POLL:
+            self._last_wlan_poll = now
+            await self._poll_wlan_clients()
         if now - self._last_phone_poll > PHONE_POLL:
             self._last_phone_poll = now
             await self._poll_phone()
@@ -376,6 +382,8 @@ class Hub:
             "scan_interval": self.options.scan_interval,
             "hosts_online": sum(1 for h in hosts if h["active"]) if hosts else None,
             "hosts_total": len(hosts) if hosts else None,
+            "weak_wlan": self.weakest_wlan(),
+            "wlan_signal_known": bool(self.wlan_clients),
         }
 
     # ------------------------------------------------------- hosts & mesh
@@ -426,7 +434,21 @@ class Hub:
         try:
             mesh = await self.mesh(force)
         except BoxError:
-            return hosts
+            mesh = None
+        if mesh:
+            self._enrich_from_mesh(hosts, mesh)
+        # signal strength as reported by the access point the device is connected to
+        for h in hosts:
+            client = self.wlan_clients.get(h["mac"])
+            if client and h["active"]:
+                h["signal"] = client["signal"]
+                h["wlan_speed"] = client["speed"]
+                h["connected_to"] = client["ap"]
+                h["band"] = client["band"] or h.get("band")
+                h["link_type"] = "WLAN"
+        return hosts
+
+    def _enrich_from_mesh(self, hosts: list[dict[str, Any]], mesh: dict[str, Any]) -> None:
         nodes = {n["id"]: n for n in mesh["nodes"]}
         mac_to_node = {m: n for n in mesh["nodes"] for m in n["macs"]}
         for h in hosts:
@@ -446,7 +468,54 @@ class Hub:
                     h["link_rate"] = max(link["rate_rx"] or 0, link["rate_tx"] or 0) or None
                     break
             h["mesh_role"] = node["role"]
-        return hosts
+
+    # ------------------------------------------------------------ WLAN signal
+    async def _poll_wlan_clients(self) -> None:
+        """Collect WLAN devices incl. signal strength from every box / repeater."""
+        boxes = [
+            b for b in self.active_boxes()
+            if self.state.get(b.cfg.id, {}).get("online") and self.state[b.cfg.id].get("wlan")
+        ]
+        results = await asyncio.gather(
+            *(self.run(b.wlan_clients, self.state[b.cfg.id]["wlan"]) for b in boxes),
+            return_exceptions=True,
+        )
+        clients: dict[str, dict[str, Any]] = {}
+        for box, result in zip(boxes, results, strict=True):
+            if isinstance(result, Exception):
+                _LOGGER.debug("WLAN clients %s: %s", box.cfg.host, result)
+                continue
+            info = self.state[box.cfg.id].get("info") or {}
+            ap = box.cfg.name or info.get("model") or box.cfg.host
+            for c in result:
+                # a device is associated with one access point – keep the best entry
+                old = clients.get(c["mac"])
+                if old is None or (c["signal"] or 0) > (old["signal"] or 0):
+                    clients[c["mac"]] = {**c, "ap": ap, "box": box.cfg.id}
+        self.wlan_clients = clients
+
+    def weakest_wlan(self, limit: int = 5) -> list[dict[str, Any]]:
+        hosts = {h["mac"]: h for h in (self._hosts_cache[1] if self._hosts_cache else [])}
+        entries = []
+        for mac, c in self.wlan_clients.items():
+            if c["signal"] is None:
+                continue
+            host = hosts.get(mac, {})
+            entries.append(
+                {
+                    "mac": mac,
+                    "name": host.get("name") or c["ip"] or mac,
+                    "model": host.get("model"),
+                    "ip": c["ip"] or host.get("ip"),
+                    "signal": c["signal"],
+                    "speed": c["speed"],
+                    "band": c["band"],
+                    "ap": c["ap"],
+                    "guest": c["guest"],
+                }
+            )
+        entries.sort(key=lambda e: (e["signal"], e["speed"] or 0))
+        return entries[:limit]
 
     async def topology(self, force: bool = False) -> dict[str, Any]:
         mesh = dict(await self.mesh(force))

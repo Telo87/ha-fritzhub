@@ -236,6 +236,16 @@
   }
   const isWlan = (h) => /802\.11|wlan|wi-?fi/i.test(h.interface || h.link_type || '');
 
+  // WLAN signal strength (percent, as reported by the access point)
+  const WEAK_SIGNAL = 40;
+  const signalClass = (s) => (s >= 60 ? 'ok' : s >= WEAK_SIGNAL ? 'warn' : 'err');
+  function signalBars(s, withValue = true) {
+    if (s == null) return '<span class="faint">–</span>';
+    const n = s >= 75 ? 4 : s >= 50 ? 3 : s >= 25 ? 2 : 1;
+    const bars = [1, 2, 3, 4].map((k) => `<i class="${k <= n ? 'on' : ''}"></i>`).join('');
+    return `<span class="sig ${signalClass(s)}" title="Signalstärke ${s} %">${bars}</span>${withValue ? `<span class="sig-v num">${s} %</span>` : ''}`;
+  }
+
   // ------------------------------------------------------------------ state
   const S = {
     overview: null,
@@ -438,9 +448,12 @@
 
       el.innerHTML = `<div class="grid kpis">${kpis}</div>
         ${router ? `<div class="grid dash">${chartCard}${conn}</div>` : ''}
+        ${weakCard(ov)}
         <div class="card-head" style="padding:26px 2px 12px"><h2>Mesh-Geräte</h2><a class="btn sm ghost" href="#/topology">${ic('topology')}Topologie</a></div>
         <div class="grid cols-3">${boxCards}</div>`;
       if (router) drawChart($('#chart'), router.history || []);
+      const wl = $('[data-weak-filter]');
+      if (wl) wl.addEventListener('click', () => { store.set('devFilter', { ...store.get('devFilter', { q: '', sort: 'name', dir: 1 }), kind: 'weak', q: '', sort: 'signal', dir: 1 }); });
     };
     draw();
     // Host count for the KPI tile
@@ -451,6 +464,22 @@
     const onResize = () => { const r = mainRouter(); if (r && $('#chart')) drawChart($('#chart'), r.history || []); };
     window.addEventListener('resize', onResize);
     S.cleanup.push(() => clearInterval(timer), () => window.removeEventListener('resize', onResize));
+  }
+
+  function weakCard(ov) {
+    const list = ov.weak_wlan || [];
+    if (!list.length) return '';
+    const weak = list.filter((d) => d.signal < WEAK_SIGNAL).length;
+    return `<div class="card" style="margin-top:16px">
+      <div class="card-head"><h2>Schwächste WLAN-Verbindungen <span class="sub">${weak ? `${weak} mit schwachem Signal` : 'alle Verbindungen in Ordnung'}</span></h2>
+        <a class="btn sm ghost" href="#/devices" data-weak-filter>${ic('devices')}Alle anzeigen</a></div>
+      <div class="card-body flush"><div class="list weak-list">${list.map((d) => `<div class="list-item">
+        <div class="avatar ${signalClass(d.signal) === 'ok' ? 'ok' : signalClass(d.signal)}">${ic(deviceIcon({ name: d.name, model: d.model, interface: '802.11' }))}</div>
+        <div class="grow"><div class="title">${esc(d.name)}${d.guest ? ' <span class="badge">Gast</span>' : ''}</div>
+          <div class="meta">über ${esc(d.ap)}${d.band ? ` · ${esc(d.band)}` : ''}${d.ip ? ` · ${esc(d.ip)}` : ''}</div></div>
+        <div class="nowrap" style="text-align:right"><div class="row" style="gap:6px;justify-content:flex-end">${signalBars(d.signal)}</div>
+          <div class="faint num" style="font-size:12px">${d.speed ? fmtBits(d.speed * 1e6) : ''}</div></div>
+      </div>`).join('')}</div></div></div>`;
   }
 
   function niceMax(v) {
@@ -526,6 +555,7 @@
       wlan: ['WLAN', (h) => h.active && isWlan(h)],
       lan: ['LAN', (h) => h.active && !isWlan(h)],
       guest: ['Gäste', (h) => h.guest],
+      weak: ['Schwaches WLAN', (h) => h.active && h.signal != null && h.signal < WEAK_SIGNAL],
       blocked: ['Gesperrt', (h) => h.wan_blocked],
     };
     const ipNum = (ip) => (ip || '999.999.999.999').split('.').reduce((a, p) => a * 256 + Number(p), 0);
@@ -534,6 +564,7 @@
       ip: (a, b) => ipNum(a.ip) - ipNum(b.ip),
       conn: (a, b) => (a.connected_to || '').localeCompare(b.connected_to || ''),
       speed: (a, b) => (a.link_rate || a.speed * 1000 || 0) - (b.link_rate || b.speed * 1000 || 0),
+      signal: (a, b) => (a.active && a.signal != null ? a.signal : 999) - (b.active && b.signal != null ? b.signal : 999),
     };
 
     const draw = () => {
@@ -549,7 +580,7 @@
         const conn = h.active ? `<div class="row nowrap" style="gap:8px">
             <span class="badge ${wl ? 'wlan' : 'lan'}">${ic(wl ? 'wifi' : 'ethernet')}${wl ? (h.band || 'WLAN') : 'LAN'}</span>
             ${h.connected_to ? `<span class="muted" style="font-size:12.5px">${esc(h.connected_to)}</span>` : ''}</div>` : '<span class="faint">–</span>';
-        const rate = h.active ? (h.link_rate ? fmtKbit(h.link_rate) : h.speed ? fmtBits(h.speed * 1e6) : '–') : '–';
+        const rate = h.active ? (h.wlan_speed ? fmtBits(h.wlan_speed * 1e6) : h.link_rate ? fmtKbit(h.link_rate) : h.speed ? fmtBits(h.speed * 1e6) : '–') : '–';
         const canBlock = h.ip && h.wan_blocked !== null && h.wan_blocked !== undefined;
         return `<tr class="${h.active ? '' : 'offline'}">
           <td><div class="cell-main"><div class="avatar ${h.active ? (wl ? 'wlan' : 'lan') : ''}">${ic(deviceIcon(h))}</div>
@@ -558,6 +589,7 @@
           <td class="mono nowrap">${esc(h.ip || '–')}</td>
           <td class="mono nowrap hide-md">${esc(h.mac || '–')}</td>
           <td>${conn}</td>
+          <td class="nowrap">${h.active && h.signal != null ? `<div class="row" style="gap:6px">${signalBars(h.signal)}</div>` : '<span class="faint">–</span>'}</td>
           <td class="nowrap num hide-sm">${rate}</td>
           <td class="nowrap">${canBlock ? `<label class="row" style="gap:8px" title="Internetzugang erlauben">${sw(!h.wan_blocked, `data-wan="${esc(h.ip)}"`)}</label>` : '<span class="faint">–</span>'}</td>
           <td><div class="actions">${h.mac ? `<button class="icon-btn" title="Wake on LAN" data-wol="${esc(h.mac)}">${ic('power')}</button>` : ''}</div></td>
@@ -568,8 +600,8 @@
           <div class="seg" id="kinds">${Object.entries(kinds).filter(([k]) => counts[k] || k === 'all' || k === 'online').map(([k, v]) => `<button data-kind="${k}" class="${f.kind === k ? 'active' : ''}">${v[0]} <span class="n">${counts[k]}</span></button>`).join('')}</div>
         </div>
         <div class="card"><div class="table-wrap"><table class="table">
-          <thead><tr>${th('name', 'Gerät')}${th('ip', 'IP-Adresse')}<th class="hide-md" style="cursor:default">MAC</th>${th('conn', 'Verbunden über')}${th('speed', 'Rate', 'hide-sm')}<th style="cursor:default">Internet</th><th></th></tr></thead>
-          <tbody>${rows || `<tr><td colspan="7">${empty('search', 'Keine Geräte gefunden', 'Passe Suche oder Filter an.')}</td></tr>`}</tbody>
+          <thead><tr>${th('name', 'Gerät')}${th('ip', 'IP-Adresse')}<th class="hide-md" style="cursor:default">MAC</th>${th('conn', 'Verbunden über')}${th('signal', 'Signal')}${th('speed', 'Rate', 'hide-sm')}<th style="cursor:default">Internet</th><th></th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="8">${empty('search', 'Keine Geräte gefunden', 'Passe Suche oder Filter an.')}</td></tr>`}</tbody>
         </table></div></div>`;
       const qi = $('#q');
       qi.addEventListener('input', () => { f.q = qi.value; store.set('devFilter', f); const pos = qi.selectionStart; draw(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); });
