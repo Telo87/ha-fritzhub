@@ -242,6 +242,30 @@
   const boxesWith = (service) => onlineBoxes().filter((b) => b.info && b.info.services && b.info.services[service]);
   const findBox = (id) => boxes().find((b) => b.config.id === id);
 
+  // ---- mesh roles: master / slave (mesh client that takes over the master's settings)
+  const isSlave = (i) => (i || {}).mesh_role === 'slave';
+  const isMaster = (i) => (i || {}).mesh_role === 'master' || (!(i || {}).mesh_role && (i || {}).is_router);
+  function boxAvatar(b) {
+    const i = b.info || {};
+    const icon = /repeater|powerline/i.test(i.model || '') ? 'repeater' : 'router';
+    return `<div class="avatar ${b.online === false ? 'err' : isMaster(i) ? 'accent' : 'wlan'}">${ic(icon)}</div>`;
+  }
+  function roleBadge(i) {
+    if ((i || {}).mesh_role === 'master') return '<span class="badge accent">Mesh Master</span>';
+    if (isSlave(i)) return '<span class="badge wlan">Mesh Repeater</span>';
+    return '';
+  }
+  function roleText(i) {
+    if ((i || {}).mesh_role === 'master') return 'Mesh Master · Internet';
+    if (isSlave(i)) return 'Mesh Repeater';
+    return i.is_router ? 'Router / Internet' : 'Repeater';
+  }
+  function meshNotice(i, what) {
+    if (!isSlave(i)) return '';
+    const master = i.mesh_master ? ` <b>„${esc(i.mesh_master)}“</b>` : '';
+    return `<div class="notice info" style="font-size:12.5px">${ic('info')}<div>Mesh Repeater: ${what} werden vom Mesh Master${master} übernommen. Änderungen bitte dort vornehmen.</div></div>`;
+  }
+
   function mainRouter() {
     const r = onlineBoxes().filter((b) => b.wan);
     return r.find((b) => b.wan.connected) || r[0] || null;
@@ -394,8 +418,8 @@
         const clients = (b.wlan || []).reduce((n, w) => n + (w.clients || 0), 0);
         const status = !b.config.enabled ? '<span class="badge">Deaktiviert</span>' : b.online ? '<span class="badge ok"><span class="dot ok" style="box-shadow:none;width:6px;height:6px"></span>Online</span>' : b.online === false ? '<span class="badge err">Offline</span>' : '<span class="badge">…</span>';
         return `<div class="card box-card">
-          <div class="head"><div class="avatar ${info.is_router ? 'accent' : 'wlan'}">${ic(info.is_router ? 'router' : 'repeater')}</div>
-            <div class="grow" style="min-width:0;flex:1"><div class="title">${esc(boxName(b))}</div><div class="meta muted" style="font-size:12.5px">${esc(info.model || b.config.host)}${info.firmware ? ` · FRITZ!OS ${esc(info.firmware)}` : ''}</div></div>${status}</div>
+          <div class="head">${boxAvatar(b)}
+            <div class="grow" style="min-width:0;flex:1"><div class="title">${esc(boxName(b))} ${roleBadge(info)}</div><div class="meta muted" style="font-size:12.5px">${esc(info.model || b.config.host)}${info.firmware ? ` · FRITZ!OS ${esc(info.firmware)}` : ''}</div></div>${status}</div>
           ${b.online ? `<div class="stats">
             <div><div class="l">Laufzeit</div><div class="v">${fmtUptime(info.uptime)}</div></div>
             <div><div class="l">WLAN-Geräte</div><div class="v">${clients}</div></div>
@@ -793,19 +817,21 @@
     setHeader('WLAN', 'Funknetze aller Mesh-Geräte', `<button class="btn" id="reloadBtn">${ic('refresh')}<span class="hide-sm">Aktualisieren</span></button>`);
     const draw = () => {
       if (stale(token)) return;
-      const list = onlineBoxes().filter((b) => (b.wlan || []).length);
+      const list = onlineBoxes().filter((b) => (b.wlan || []).length)
+        .sort((a, b) => isSlave(a.info) - isSlave(b.info));
       if (!list.length) { el.innerHTML = `<div class="card">${empty('wifiOff', 'Keine WLAN-Daten', 'Keine erreichbare Box liefert WLAN-Informationen.')}</div>`; return; }
       el.innerHTML = `<div class="grid cols-2">${list.map((b) => `<div class="card">
-        <div class="card-head" style="padding-bottom:10px"><div class="avatar ${b.info.is_router ? 'accent' : 'wlan'}">${ic(b.info.is_router ? 'router' : 'repeater')}</div>
-          <h2>${esc(boxName(b))}<div class="faint" style="font-weight:400;font-size:12.5px">${esc(b.info.model || '')}</div></h2>
+        <div class="card-head" style="padding-bottom:10px">${boxAvatar(b)}
+          <h2>${esc(boxName(b))} ${roleBadge(b.info)}<div class="faint" style="font-weight:400;font-size:12.5px">${esc(b.info.model || '')}</div></h2>
           <span class="badge">${b.wlan.reduce((n, w) => n + (w.clients || 0), 0)} Geräte</span></div>
+        ${isSlave(b.info) ? `<div style="padding:0 18px 12px">${meshNotice(b.info, 'WLAN-Name, Passwort, Gastnetz und Funkeinstellungen')}</div>` : ''}
         <div>${b.wlan.map((w) => `<div class="wlan-band">
           <div class="avatar ${w.enabled ? (w.guest ? 'warn' : 'ok') : ''}">${ic(w.guest ? 'users' : w.enabled ? 'wifi' : 'wifiOff')}</div>
           <div class="grow"><div class="row" style="gap:8px;flex-wrap:wrap"><b style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w.ssid || '–')}</b>${w.guest ? '<span class="badge warn">Gastnetz</span>' : `<span class="badge">${esc(w.band)}</span>`}</div>
             <div class="muted" style="font-size:12.5px">${w.enabled ? `${w.guest ? `${esc(w.band)} · ` : ''}Kanal ${w.channel ?? '–'} · ${esc(w.standard || '')} · ${w.clients} ${w.clients === 1 ? 'Gerät' : 'Geräte'}` : 'Ausgeschaltet'}</div></div>
           <button class="icon-btn" title="Passwort & QR-Code" data-cred="${b.config.id}:${w.index}">${ic('qr')}</button>
-          <button class="icon-btn" title="Bearbeiten" data-edit="${b.config.id}:${w.index}">${ic('edit')}</button>
-          ${sw(w.enabled, `data-toggle="${b.config.id}:${w.index}" data-guest="${w.guest ? 1 : 0}"`)}
+          <button class="icon-btn" title="${isSlave(b.info) ? 'Wird vom Mesh Master verwaltet' : 'Bearbeiten'}" data-edit="${b.config.id}:${w.index}" ${isSlave(b.info) ? 'disabled' : ''}>${ic('edit')}</button>
+          <span title="${isSlave(b.info) ? 'Wird vom Mesh Master verwaltet' : ''}">${sw(w.enabled, `data-toggle="${b.config.id}:${w.index}" data-guest="${w.guest ? 1 : 0}"`, isSlave(b.info))}</span>
         </div>`).join('')}</div></div>`).join('')}</div>`;
 
       $$('[data-toggle]').forEach((c) => c.addEventListener('change', async () => {
@@ -1146,10 +1172,11 @@
       el.innerHTML = `<div class="grid cols-3">${boxes().map((b) => {
         const i = b.info || {};
         return `<div class="card">
-          <div class="card-head" style="padding-bottom:12px"><div class="avatar ${i.is_router ? 'accent' : 'wlan'}">${ic(i.is_router ? 'router' : 'repeater')}</div>
-            <h2>${esc(boxName(b))}<div class="faint" style="font-weight:400;font-size:12.5px">${esc(b.config.host)}</div></h2>
+          <div class="card-head" style="padding-bottom:12px">${boxAvatar(b)}
+            <h2>${esc(boxName(b))} ${roleBadge(i)}<div class="faint" style="font-weight:400;font-size:12.5px">${esc(b.config.host)}</div></h2>
             ${b.online ? '<span class="badge ok">Online</span>' : '<span class="badge err">Offline</span>'}</div>
           <div class="card-body" style="padding-top:4px">
+          ${isSlave(i) ? `<div style="margin-bottom:14px">${meshNotice(i, 'WLAN, Gastzugang, Zeitschaltungen und weitere Mesh-Einstellungen')}</div>` : ''}
           ${i.update_available ? `<div class="notice" style="margin-bottom:14px">${ic('info')}<div><b>FRITZ!OS ${esc(i.update_version || '')}</b> ist verfügbar.${i.update_info_url ? ` <a href="${esc(i.update_info_url)}" target="_blank" rel="noopener">Details</a>` : ''}<br><span class="muted">Das Update kann in der Oberfläche der Box installiert werden.</span></div></div>` : ''}
           ${b.online ? `<dl class="kv">
             <dt>Modell</dt><dd>${esc(i.model || '–')}</dd>
@@ -1157,7 +1184,7 @@
             ${i.hardware ? `<dt>Hardware</dt><dd>${esc(i.hardware)}</dd>` : ''}
             ${i.serial ? `<dt>Seriennummer</dt><dd class="mono">${esc(i.serial)}</dd>` : ''}
             <dt>Laufzeit</dt><dd>${fmtUptime(i.uptime)}</dd>
-            <dt>Rolle</dt><dd>${i.is_router ? 'Router / Internet' : 'Repeater / Mesh'}</dd>
+            <dt>Rolle</dt><dd>${roleText(i)}</dd>
           </dl>` : errorBox(b.error || 'Nicht erreichbar')}
           <div class="row wrap" style="margin-top:16px;gap:8px">
             <a class="btn sm" href="http://${esc(b.config.host)}" target="_blank" rel="noopener">${ic('external')}Oberfläche</a>
@@ -1196,8 +1223,8 @@
     const draw = () => {
       const list = boxes();
       const cfgRows = list.map((b) => `<div class="list-item">
-          <div class="avatar ${b.online ? (b.info && b.info.is_router ? 'accent' : 'wlan') : 'err'}">${ic(b.info && !b.info.is_router ? 'repeater' : 'router')}</div>
-          <div class="grow"><div class="title">${esc(boxName(b))}</div><div class="meta">${esc(b.config.host)}${b.config.username ? ` · Benutzer ${esc(b.config.username)}` : ' · ohne Benutzername'}${b.info && b.info.model ? ` · ${esc(b.info.model)}` : ''}</div>
+          ${boxAvatar(b)}
+          <div class="grow"><div class="title">${esc(boxName(b))} ${roleBadge(b.info)}</div><div class="meta">${esc(b.config.host)}${b.config.username ? ` · Benutzer ${esc(b.config.username)}` : ' · ohne Benutzername'}${b.info && b.info.model ? ` · ${esc(b.info.model)}` : ''}</div>
             ${b.online === false && b.error ? `<div class="meta" style="color:var(--err);white-space:normal">${esc(b.error)}</div>` : ''}</div>
           ${!b.config.enabled ? '<span class="badge">Deaktiviert</span>' : b.online ? '<span class="badge ok">Verbunden</span>' : b.online === false ? '<span class="badge err">Fehler</span>' : '<span class="badge">…</span>'}
           <button class="icon-btn" data-edit="${b.config.id}" title="Bearbeiten">${ic('edit')}</button>

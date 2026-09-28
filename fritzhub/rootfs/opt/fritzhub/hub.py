@@ -42,6 +42,7 @@ class Hub:
         self._mesh_cache: tuple[float, dict[str, Any]] | None = None
         self._hosts_cache: tuple[float, list[dict[str, Any]]] | None = None
         self._last_phone_poll = 0.0
+        self._mesh_roles: dict[str, str] = {}
         self._task: asyncio.Task | None = None
         self._wake = asyncio.Event()
         self.publisher = SensorPublisher()
@@ -168,6 +169,7 @@ class Hub:
                     (int(now), wan.get("rate_down") or 0, wan.get("rate_up") or 0)
                 )
 
+        await self._apply_mesh_roles()
         self._demote_mesh_boxes()
 
         if now - self._last_phone_poll > PHONE_POLL:
@@ -175,6 +177,54 @@ class Hub:
             await self._poll_phone()
         if self.options.publish_sensors and self.publisher.available:
             await self._publish()
+
+    async def _apply_mesh_roles(self) -> None:
+        """Mark every box with its mesh role (``master`` / ``slave``).
+
+        The role comes from the mesh topology of the master; boxes are matched
+        via IP (host list) -> MAC -> mesh node. Mesh clients take over their
+        settings (WLAN, guest access, …) from the master, and FRITZ!Boxes in
+        mesh repeater mode must not be treated as internet routers.
+        """
+        try:
+            mesh = await self.mesh()
+            hosts = await self._raw_hosts()
+        except BoxError:
+            mesh, hosts = None, []
+        if mesh:
+            ip_to_mac = {h["ip"]: h["mac"] for h in hosts if h.get("ip") and h.get("mac")}
+            mac_to_node = {m: n for n in mesh["nodes"] for m in n["macs"]}
+            roles: dict[str, str] = {}
+            for box in self.active_boxes():
+                node = mac_to_node.get(ip_to_mac.get(box.cfg.host, ""))
+                if node and node["role"] in ("master", "slave"):
+                    roles[box.cfg.id] = node["role"]
+                elif box.cfg.id == mesh.get("source") and any(
+                    n["role"] == "master" for n in mesh["nodes"]
+                ):
+                    # the master itself is usually not part of its own host list
+                    roles[box.cfg.id] = "master"
+            if roles:
+                self._mesh_roles = roles
+        roles = self._mesh_roles
+        master_id = next((bid for bid, role in roles.items() if role == "master"), None)
+        master = self.boxes.get(master_id) if master_id else None
+        master_label = None
+        if master:
+            master_info = self.state.get(master.cfg.id, {}).get("info") or {}
+            master_label = master.cfg.name or master_info.get("model") or master.cfg.host
+
+        for box_id, st in self.state.items():
+            info = st.get("info")
+            if not st.get("online") or not info:
+                continue
+            role = roles.get(box_id)
+            info = {**info, "mesh_role": role, "mesh_master": master_label, "mesh_master_id": master_id}
+            if role == "slave":
+                st["wan"] = None
+                info["is_router"] = False
+                info["services"] = {**info["services"], "wan": False}
+            st["info"] = info
 
     def _demote_mesh_boxes(self) -> None:
         """FRITZ!Boxes used as mesh repeaters (IP client) still expose WAN services.
@@ -334,9 +384,10 @@ class Hub:
         if not force and self._mesh_cache and now - self._mesh_cache[0] < MESH_TTL:
             return self._mesh_cache[1]
         errors = []
-        candidates = self.routers() + [
-            b for b in self.active_boxes() if b not in self.routers()
-        ]
+        routers = self.routers()
+        candidates = routers + [b for b in self.active_boxes() if b not in routers]
+        # a known mesh master always delivers the authoritative topology
+        candidates.sort(key=lambda b: self._mesh_roles.get(b.cfg.id) != "master")
         for box in candidates:
             try:
                 graph = await self.run(box.mesh)
