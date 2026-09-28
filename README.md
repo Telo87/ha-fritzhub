@@ -16,6 +16,10 @@
   <img alt="Lizenz" src="https://img.shields.io/badge/license-MIT-64748b">
 </p>
 
+<p align="center">
+  🇩🇪 Deutsch · <a href="#english">🇬🇧 English</a>
+</p>
+
 ---
 
 ![Übersicht](docs/screenshots/dashboard.png)
@@ -117,10 +121,50 @@ fritzhub/                  Add-on (config.yaml, Dockerfile, Doku)
 
 - Zugangsdaten werden ausschließlich lokal im Add-on-Datenverzeichnis (`/data/boxes.json`, nur für das Add-on lesbar) gespeichert.
 - Die Oberfläche ist nur über Home Assistant (Ingress) erreichbar, obwohl das Add-on im Host-Netzwerk läuft.
-- Dieses Projekt steht in keiner Verbindung zu AVM. FRITZ! und FRITZ!Box sind Marken der AVM GmbH.
+- Dieses Projekt steht in keiner Verbindung zur FRITZ! GmbH (vormals AVM). FRITZ! und FRITZ!Box sind deren Marken.
 
 ## Lizenz
 
 [MIT](LICENSE)
 
 Einige Icons basieren auf [Lucide](https://lucide.dev) (ISC-Lizenz).
+
+---
+
+<a id="english"></a>
+
+## 🇬🇧 English
+
+**FritzHub** is a Home Assistant add-on (app) for **FRITZ!Box** routers and **FRITZ!Repeaters** – built for
+mesh networks with several boxes and repeaters. The user interface is currently **German only**.
+
+### Features
+
+- **Dashboard** – internet status, throughput history (1 h / 24 h / 7 days), data volume per day and month,
+  DSL values, status and firmware of every mesh device
+- **Mesh topology** – interactive map with link type and speed; WLAN uplink quality of repeaters (signal, rates,
+  history) and a warning for LAN links below 1 Gbit/s
+- **Devices** – all devices with vendor detection (MAC), WLAN signal strength, weakest connections,
+  "last seen", rename, block internet access, one-click links to the device's **web interface**
+- **New device alarm** – Home Assistant notification, optional push (`notify.*`) and the event
+  `fritzhub_new_device` for automations (can be switched off)
+- **WLAN** – all networks of all boxes, QR code, guest network, **channel check** with suggestions
+- **Phone** – call list, **block numbers**, call deflections, **answering machine** playback in the browser
+- **FRITZ!NAS** – file browser with preview (images, PDF, video, audio, text), upload and download
+- **System** – device info, event log, reboot single devices or **all at once** with live status
+- **Auto discovery** of boxes and repeaters (SSDP + subnet scan), separate credentials per device
+
+### Installation
+
+1. Click **"Add repository"** at the top – or in Home Assistant go to **Settings › Add-ons › Add-on Store › ⋮ ›
+   Repositories** and add `https://github.com/Telo87/ha-fritzhub`.
+2. Install and start **FritzHub**, then open the web UI.
+3. Click **"Netzwerk durchsuchen"** (scan network) and add your devices with their credentials.
+
+**Requirements:** Home Assistant OS or Supervised on `amd64` or `aarch64`. In the FRITZ!Box enable
+**TR-064** (*Heimnetz › Netzwerk › Netzwerkeinstellungen › Zugriff für Apps erlauben*). A dedicated FRITZ!Box
+user with the rights *FRITZ!Box Einstellungen*, *Sprachnachrichten … und Anrufliste* and *Zugang zu NAS-Inhalten*
+is recommended. For FRITZ!NAS, enable FTP access.
+
+Credentials are stored only inside the add-on (`/data`). The UI is only reachable through Home Assistant
+(ingress). Not affiliated with FRITZ! GmbH (formerly AVM).
