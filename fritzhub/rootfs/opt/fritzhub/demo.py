@@ -74,6 +74,10 @@ def _mac(seed: int) -> str:
 
 
 class DemoBox(FritzBox):
+    _names: dict[str, str] = {}
+    _barring: list[dict[str, Any]] = [{"uid": 1, "name": "Gewinnspiel-Hotline", "number": "01371234567"}]
+    _started = time.time()
+
     def __init__(self, cfg: BoxConfig, verify_ssl: bool = False) -> None:
         super().__init__(cfg, verify_ssl)
         self.router = cfg.host == MASTER
@@ -162,7 +166,10 @@ class DemoBox(FritzBox):
             result.append({
                 "index": idx, "enabled": on, "status": "Up" if on else "Disabled",
                 "ssid": "FRITZ!Box Gastzugang" if guest else "Mein-Heimnetz",
-                "channel": 6 if idx == 1 else 36, "standard": "ax", "security": "11i",
+                "channel": {MASTER: (1, 36), "192.168.178.30": (1, 100)}.get(self.cfg.host, (6, 36))[0 if (idx == 1 or guest) else 1],
+                "auto_channel": self.cfg.host != "192.168.178.30",
+                "possible_channels": list(range(1, 14)) if (idx == 1 or guest) else [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140],
+                "standard": "ax", "security": "11i",
                 "band": "2,4 GHz" if guest else band, "guest": guest,
                 "clients": 0 if (guest or not on) else counts[idx - 1] if idx <= 2 else 0,
             })
@@ -192,12 +199,15 @@ class DemoBox(FritzBox):
     def wlan_update(self, index: int, ssid: str | None, password: str | None) -> None:
         return None
 
+    def set_host_name(self, mac: str, name: str) -> None:
+        DemoBox._names[mac.upper()] = name
+
     def hosts(self) -> list[dict[str, Any]]:
         hosts = []
         for i, (name, model, iface, _parent, _band) in enumerate(CLIENTS):
             ip = f"192.168.178.{20 + i if i < 10 else 40 + i}"
             hosts.append({
-                "name": name, "ip": ip, "mac": _mac(i), "active": True, "interface": iface,
+                "name": DemoBox._names.get(_mac(i), name), "ip": ip, "mac": _mac(i), "active": True, "interface": iface,
                 "speed": 1000 if iface == "Ethernet" else None, "guest": False, "vpn": False,
                 "wan_blocked": ip in self._blocked, "model": model, "port": None, "meshable": False,
             })
@@ -205,8 +215,13 @@ class DemoBox(FritzBox):
             hosts.append({"name": name, "ip": ip, "mac": _mac(hash(ip) % 1000), "active": True,
                           "interface": "Ethernet", "speed": 1000, "guest": False, "vpn": False,
                           "wan_blocked": False, "model": model, "port": None, "meshable": True})
+        if time.time() - DemoBox._started > 40:
+            hosts.append({"name": DemoBox._names.get("D2:4E:91:3A:77:10", "Galaxy-S24"), "ip": "192.168.178.66",
+                          "mac": "D2:4E:91:3A:77:10", "active": True, "interface": "802.11", "speed": None,
+                          "guest": True, "vpn": False, "wan_blocked": False, "model": None, "port": None,
+                          "meshable": False})
         for i, name in enumerate(OFFLINE):
-            hosts.append({"name": name, "ip": f"192.168.178.{80 + i}", "mac": _mac(100 + i), "active": False,
+            hosts.append({"name": DemoBox._names.get(_mac(100 + i), name), "ip": f"192.168.178.{80 + i}", "mac": _mac(100 + i), "active": False,
                           "interface": "", "speed": None, "guest": i == 0, "vpn": False,
                           "wan_blocked": False, "model": None, "port": None, "meshable": False})
         return hosts
@@ -270,6 +285,17 @@ class DemoBox(FritzBox):
             if (now - t).days > days:
                 break
         return calls
+
+    def call_barring(self) -> list[dict[str, Any]]:
+        return list(DemoBox._barring)
+
+    def call_barring_add(self, number: str, name: str | None = None) -> int:
+        uid = max([b["uid"] for b in DemoBox._barring] + [0]) + 1
+        DemoBox._barring.append({"uid": uid, "name": name or number, "number": number})
+        return uid
+
+    def call_barring_delete(self, uid: int) -> None:
+        DemoBox._barring[:] = [b for b in DemoBox._barring if b["uid"] != uid]
 
     def deflections(self) -> list[dict[str, Any]]:
         return self._defl

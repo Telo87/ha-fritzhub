@@ -381,6 +381,20 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .stale { color: var(--warn); font-weight: 600; }
 @media (max-width: 700px) { .vol-tiles { grid-template-columns: 1fr; } .vol-bars { gap: 1px; } .vb .lbl { display: none; } }
 
+/* Channel check */
+.ch-strip { display: flex; flex-direction: column; gap: 6px; }
+.ch-row { display: grid; grid-template-columns: minmax(110px, 190px) 1fr; gap: 12px; align-items: center; }
+.ch-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-track { position: relative; height: 22px; background: repeating-linear-gradient(90deg, var(--surface-3) 0 calc(100% / 13 - 1px), var(--surface) calc(100% / 13 - 1px) calc(100% / 13)); border-radius: 6px; }
+.ch-bar { position: absolute; top: 3px; bottom: 3px; border-radius: 5px; opacity: .85; }
+.ch-bar.ok { background: var(--ok); } .ch-bar.warn { background: var(--warn); } .ch-bar.err { background: var(--err); }
+.ch-mark { position: absolute; top: 0; bottom: 0; width: calc(100% / 13); transform: translateX(-50%); display: grid; place-items: center; font-size: 11.5px; color: #fff; }
+.ch-axis { display: grid; grid-template-columns: repeat(13, 1fr); font-size: 11px; color: var(--text-3); text-align: center; }
+fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
+fieldset.plain:disabled { opacity: .5; }
+pre.code { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; font-family: var(--mono); font-size: 12px; overflow: auto; margin: 0; }
+code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-3); padding: 1px 5px; border-radius: 5px; }
+
 /* WLAN signal bars */
 .sig { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; vertical-align: middle; }
 .sig i { width: 4px; border-radius: 1.5px; background: var(--border-strong); }

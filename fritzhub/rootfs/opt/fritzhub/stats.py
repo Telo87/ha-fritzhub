@@ -43,9 +43,11 @@ class Stats:
         except (OSError, ValueError) as err:
             _LOGGER.warning("Could not read %s: %s", self._path, err)
             return
-        for key in ("history", "volume", "seen"):
+        for key in ("history", "volume", "seen", "known"):
             if isinstance(raw.get(key), dict):
                 self.data[key] = raw[key]
+        if isinstance(raw.get("new_devices"), list):
+            self.data["new_devices"] = raw["new_devices"]
         self.data["since"] = raw.get("since") or self.data["since"]
 
     def save(self, force: bool = False) -> None:
@@ -151,6 +153,44 @@ class Stats:
                 entry = seen.setdefault(mac, {"first": now})
                 entry["last"] = now
             self._dirty = True
+
+    # ------------------------------------------------------------ new devices
+    def update_known(self, hosts: list[dict[str, Any]], now: float | None = None) -> list[dict[str, Any]]:
+        """Remember every MAC the box knows; return hosts that were never seen before.
+
+        The first run only records the existing devices (no alarm for all of
+        them). A burst of more than 20 "new" devices at once is treated the same
+        way – e.g. when another box suddenly delivers the host list.
+        """
+        now = int(now or time.time())
+        with self._lock:
+            known = self.data.get("known")
+            baseline = known is None
+            if baseline:
+                known = self.data["known"] = {}
+            new = [h for h in hosts if h.get("mac") and h["mac"] not in known]
+            if baseline or len(new) > 20:
+                for h in new:
+                    known[h["mac"]] = 0  # 0 = part of the initial inventory
+                self._dirty = True
+                return []
+            if not new:
+                return []
+            log = self.data.setdefault("new_devices", [])
+            for h in new:
+                known[h["mac"]] = now
+                log.append({"mac": h["mac"], "name": h.get("name"), "ip": h.get("ip"), "ts": now})
+            del log[:-50]
+            self._dirty = True
+            return new
+
+    def known_since(self, mac: str) -> int:
+        """Timestamp when a device was first detected (0 = initial inventory)."""
+        return int((self.data.get("known") or {}).get(mac) or 0)
+
+    @property
+    def new_devices(self) -> list[dict[str, Any]]:
+        return list(reversed(self.data.get("new_devices", [])))
 
     def seen(self, mac: str) -> dict[str, int] | None:
         return self.data["seen"].get(mac)

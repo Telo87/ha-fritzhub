@@ -89,6 +89,7 @@
     gamepad: '<rect x="2" y="6" width="20" height="12" rx="4"/><path d="M6 12h4M8 10v4M15 11h.01M18 13h.01"/>',
     server: '<rect x="3" y="3" width="18" height="8" rx="2"/><rect x="3" y="13" width="18" height="8" rx="2"/><path d="M7 7h.01M7 17h.01"/>',
     home: '<path d="m3 11 9-8 9 8"/><path d="M5 9.5V20h14V9.5"/>',
+    bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   };
   const ic = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[name] || ''}</svg>`;
 
@@ -245,6 +246,9 @@
     if (/pc|desktop|win|imac/.test(n)) return 'devices';
     return (h.interface || '').includes('802.11') ? 'smartphone' : 'devices';
   }
+  // detected for the first time within the last 7 days (not part of the initial inventory)
+  const NEW_DAYS = 7;
+  const isNew = (h) => !!h.new_since && Date.now() / 1000 - h.new_since < NEW_DAYS * 86400;
   // offline for more than 30 days (or never seen since tracking started 30+ days ago)
   const STALE_DAYS = 30;
   function isStale(h) {
@@ -318,6 +322,7 @@
     { id: 'tam', title: 'Anrufbeantworter', icon: 'voicemail' },
     { id: 'nas', title: 'FRITZ!NAS', icon: 'folder', section: 'Speicher' },
     { id: 'system', title: 'System', icon: 'sliders', section: 'Verwaltung' },
+    { id: 'settings', title: 'Einstellungen', icon: 'bell' },
     { id: 'boxes', title: 'Boxen & Zugänge', icon: 'router' },
   ];
 
@@ -653,6 +658,7 @@
       wlan: ['WLAN', (h) => h.active && isWlan(h)],
       lan: ['LAN', (h) => h.active && !isWlan(h)],
       guest: ['Gäste', (h) => h.guest],
+      new: ['Neu', (h) => isNew(h)],
       stale: ['Lange offline', (h) => isStale(h)],
       weak: ['Schwaches WLAN', (h) => h.active && h.signal != null && h.signal < WEAK_SIGNAL],
       blocked: ['Gesperrt', (h) => h.wan_blocked],
@@ -685,7 +691,7 @@
         const canBlock = h.ip && h.wan_blocked !== null && h.wan_blocked !== undefined;
         return `<tr class="${h.active ? '' : 'offline'}">
           <td><div class="cell-main"><div class="avatar ${h.active ? (wl ? 'wlan' : 'lan') : ''}">${ic(deviceIcon(h))}</div>
-            <div style="min-width:0"><div class="t">${esc(h.name || h.mac || 'Unbekannt')}${h.guest ? ' <span class="badge">Gast</span>' : ''}${h.wan_blocked ? ' <span class="badge err">Gesperrt</span>' : ''}</div>
+            <div style="min-width:0"><div class="t">${esc(h.name || h.mac || 'Unbekannt')}${isNew(h) ? ` <span class="badge accent" title="Erstmals erkannt ${fmtDateTime(h.new_since)}">Neu</span>` : ''}${h.guest ? ' <span class="badge">Gast</span>' : ''}${h.wan_blocked ? ' <span class="badge err">Gesperrt</span>' : ''}</div>
             <div class="faint" style="font-size:12px">${h.active ? '<span class="dot ok" style="width:6px;height:6px;box-shadow:none;margin-right:5px;vertical-align:1px"></span>Online' : 'Offline'}${h.model ? ` · ${esc(h.model)}` : ''}</div></div></div></td>
           <td class="mono nowrap">${esc(h.ip || '–')}</td>
           <td class="mono nowrap hide-md">${esc(h.mac || '–')}</td>
@@ -700,7 +706,7 @@
             : h.last_seen ? `<span class="${isStale(h) ? 'stale' : ''}">${fmtAgo(h.last_seen)}</span>`
               : `<span class="faint" title="FritzHub zeichnet seit ${fmtDateTime(S.overview.tracking_since)} auf">vor ${new Date(S.overview.tracking_since * 1000).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}</span>`}</td>
           <td class="nowrap">${canBlock ? `<label class="row" style="gap:8px" title="Internetzugang erlauben">${sw(!h.wan_blocked, `data-wan="${esc(h.ip)}"`)}</label>` : '<span class="faint">–</span>'}</td>
-          <td><div class="actions">${h.mac ? `<button class="icon-btn" title="Wake on LAN" data-wol="${esc(h.mac)}">${ic('power')}</button>` : ''}</div></td>
+          <td><div class="actions">${h.mac ? `<button class="icon-btn" title="Umbenennen" data-rename-host="${esc(h.mac)}">${ic('edit')}</button><button class="icon-btn" title="Wake on LAN" data-wol="${esc(h.mac)}">${ic('power')}</button>` : ''}</div></td>
         </tr>`;
       }).join('');
       el.innerHTML = `<div class="toolbar">
@@ -715,6 +721,30 @@
       qi.addEventListener('input', () => { f.q = qi.value; store.set('devFilter', f); const pos = qi.selectionStart; draw(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); });
       $$('#kinds button').forEach((b) => b.addEventListener('click', () => { f.kind = b.dataset.kind; store.set('devFilter', f); draw(); }));
       $$('th[data-sort]').forEach((t) => t.addEventListener('click', () => { if (f.sort === t.dataset.sort) f.dir *= -1; else { f.sort = t.dataset.sort; f.dir = 1; } store.set('devFilter', f); draw(); }));
+      $$('[data-rename-host]').forEach((b) => b.addEventListener('click', () => {
+        const h = S.hosts.find((x) => x.mac === b.dataset.renameHost);
+        if (!h) return;
+        modal({
+          title: 'Gerät umbenennen',
+          body: `<div class="field"><label>Name in der FRITZ!Box</label><input class="input" id="hostName" maxlength="63" value="${esc(h.name || '')}">
+            <span class="hint">${esc(h.mac)}${h.vendor ? ` · ${esc(h.vendor)}` : ''}${h.ip ? ` · ${esc(h.ip)}` : ''}. Der Name gilt auch als Hostname im Heimnetz – Buchstaben, Ziffern und Bindestrich funktionieren überall.</span></div>`,
+          foot: '<button class="btn" data-close>Abbrechen</button><button class="btn primary" id="saveName">Speichern</button>',
+          onMount(m, close) {
+            const inp = m.querySelector('#hostName'); inp.select();
+            const save = () => withBusy(m.querySelector('#saveName'), async () => {
+              const name = inp.value.trim();
+              if (!name) { toast('Bitte einen Namen eingeben.', 'err'); return; }
+              if (name === h.name) { close(); return; }
+              try {
+                await api('hosts/rename', { method: 'POST', body: { mac: h.mac, name } });
+                h.name = name; close(); toast(`Umbenannt in „${name}“.`); draw();
+              } catch (e) { toast(e.message, 'err'); }
+            });
+            m.querySelector('#saveName').addEventListener('click', save);
+            inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+          },
+        });
+      }));
       $$('[data-wol]').forEach((b) => b.addEventListener('click', () => withBusy(b, async () => {
         try { await api('hosts/wol', { method: 'POST', body: { mac: b.dataset.wol } }); toast('Weckruf (Wake on LAN) gesendet.'); } catch (e) { toast(e.message, 'err'); }
       })));
@@ -1039,7 +1069,7 @@
       const list = onlineBoxes().filter((b) => (b.wlan || []).length)
         .sort((a, b) => isSlave(a.info) - isSlave(b.info));
       if (!list.length) { el.innerHTML = `<div class="card">${empty('wifiOff', 'Keine WLAN-Daten', 'Keine erreichbare Box liefert WLAN-Informationen.')}</div>`; return; }
-      el.innerHTML = `<div class="grid cols-2">${list.map((b) => `<div class="card">
+      el.innerHTML = `${channelCard(list)}<div class="grid cols-2" style="margin-top:16px">${list.map((b) => `<div class="card">
         <div class="card-head" style="padding-bottom:10px">${boxAvatar(b)}
           <h2>${esc(boxName(b))} ${roleBadge(b.info)}<div class="faint" style="font-weight:400;font-size:12.5px">${esc(b.info.model || '')}</div></h2>
           <span class="badge">${b.wlan.reduce((n, w) => n + (w.clients || 0), 0)} Geräte</span></div>
@@ -1100,6 +1130,75 @@
     $('#reloadBtn').addEventListener('click', (e) => withBusy(e.currentTarget, async () => { await loadOverview(true); draw(); }));
   }
 
+  // WLAN channel check -------------------------------------------------------
+  // 2.4 GHz: a 20 MHz channel covers ±2 channels, so only 1 / 6 / 11 don't overlap.
+  // 5 GHz: with 80 MHz width the channels are grouped in blocks of four.
+  const BLOCKS_5 = [[36, 48], [52, 64], [100, 112], [116, 128], [132, 144], [149, 161]];
+  const block5 = (c) => BLOCKS_5.findIndex(([a, b]) => c >= a && c <= b);
+
+  function channelAnalysis(list) {
+    const aps = [];
+    list.forEach((b) => (b.wlan || []).forEach((w) => {
+      if (w.guest || !w.enabled || !w.channel) return;
+      aps.push({ name: boxName(b), band: w.band, ch: w.channel, clients: w.clients || 0, auto: w.auto_channel, possible: w.possible_channels || [], slave: isSlave(b.info), level: 'ok' });
+    }));
+    const two = aps.filter((a) => a.band.startsWith('2'));
+    const five = aps.filter((a) => a.band.startsWith('5'));
+    const issues = [];
+    const worse = (a, lvl) => { if (lvl === 'err' || (lvl === 'warn' && a.level === 'ok')) a.level = lvl; };
+    two.forEach((a, i) => two.slice(i + 1).forEach((b) => {
+      const d = Math.abs(a.ch - b.ch);
+      if (d === 0) {
+        issues.push({ level: 'warn', text: `<b>${esc(a.name)}</b> und <b>${esc(b.name)}</b> funken beide auf Kanal ${a.ch} und teilen sich die Sendezeit.` });
+        worse(a, 'warn'); worse(b, 'warn');
+      } else if (d < 5) {
+        issues.push({ level: 'err', text: `<b>${esc(a.name)}</b> (Kanal ${a.ch}) und <b>${esc(b.name)}</b> (Kanal ${b.ch}) überlappen sich teilweise – das stört stärker als ein gemeinsamer Kanal.` });
+        worse(a, 'err'); worse(b, 'err');
+      }
+    }));
+    const fiveShared = [];
+    five.forEach((a, i) => five.slice(i + 1).forEach((b) => {
+      if (block5(a.ch) >= 0 && block5(a.ch) === block5(b.ch)) fiveShared.push(`${a.name} (${a.ch}) / ${b.name} (${b.ch})`);
+    }));
+    // suggestion: busiest access points get their own non-overlapping channel
+    const load = { 1: 0, 6: 0, 11: 0 };
+    const suggestion = [...two].sort((a, b) => b.clients - a.clients).map((a) => {
+      const options = [1, 6, 11].filter((c) => !a.possible.length || a.possible.includes(c));
+      const best = options.sort((x, y) => (load[x] - load[y]) || ((x === a.ch ? 0 : 1) - (y === a.ch ? 0 : 1)))[0];
+      load[best] += a.clients + 1;
+      return { ...a, suggested: best };
+    });
+    return { two, five, issues, fiveShared, suggestion };
+  }
+
+  function channelCard(list) {
+    const r = channelAnalysis(list);
+    if (!r.two.length && !r.five.length) return '';
+    const errors = r.issues.filter((i) => i.level === 'err').length;
+    const badge = r.issues.length
+      ? `<span class="badge ${errors ? 'err' : 'warn'}">${r.issues.length} ${r.issues.length === 1 ? 'Hinweis' : 'Hinweise'}</span>`
+      : '<span class="badge ok">Keine Konflikte</span>';
+    const strip = r.two.map((a) => {
+      const lo = Math.max(1, a.ch - 2); const hi = Math.min(13, a.ch + 2);
+      return `<div class="ch-row"><div class="ch-name" title="${esc(a.name)}">${esc(a.name)}<span class="faint"> · ${a.clients}</span></div>
+        <div class="ch-track"><i class="ch-bar ${a.level}" style="left:${((lo - 1) / 13) * 100}%;width:${((hi - lo + 1) / 13) * 100}%"></i>
+        <b class="ch-mark" style="left:${((a.ch - 0.5) / 13) * 100}%">${a.ch}</b></div></div>`;
+    }).join('');
+    const axis = `<div class="ch-row"><div class="ch-name"></div><div class="ch-axis">${Array.from({ length: 13 }, (_, i) => `<span>${i + 1}</span>`).join('')}</div></div>`;
+    const changes = r.suggestion.filter((a) => a.suggested !== a.ch);
+    const allAuto = r.two.length && r.two.every((a) => a.auto);
+    return `<div class="card"><div class="card-head"><div class="avatar accent">${ic('wifi')}</div><h2>Kanalprüfung<div class="faint" style="font-weight:400;font-size:12.5px">2,4 GHz – je Gerät der belegte Frequenzbereich, dahinter die Anzahl WLAN-Geräte</div></h2>${badge}</div>
+      <div class="card-body">
+        ${r.two.length ? `<div class="ch-strip">${strip}${axis}</div>` : ''}
+        ${r.issues.length ? `<div class="list" style="margin-top:14px">${r.issues.map((i) => `<div class="notice ${i.level === 'err' ? 'err' : ''}" style="margin-bottom:8px">${ic('alert')}<div>${i.text}</div></div>`).join('')}</div>` : '<div class="notice info" style="margin-top:14px;background:var(--ok-soft)">' + ic('checkCircle') + '<div>Die 2,4-GHz-Netze deiner Geräte stören sich nicht gegenseitig.</div></div>'}
+        ${r.issues.length && changes.length ? `<div style="margin-top:14px"><b style="font-size:13.5px">Vorschlag</b> <span class="muted" style="font-size:12.5px">– die Geräte mit den meisten WLAN-Geräten bekommen eigene, überlappungsfreie Kanäle (1 / 6 / 11):</span>
+          <table class="table" style="margin-top:8px"><thead><tr><th style="cursor:default">Gerät</th><th style="cursor:default">Aktuell</th><th style="cursor:default">Vorschlag</th></tr></thead><tbody>
+          ${r.suggestion.map((a) => `<tr><td>${esc(a.name)}</td><td class="num">${a.ch}</td><td class="num">${a.suggested === a.ch ? `<span class="faint">${a.ch} (bleibt)</span>` : `<b>${a.suggested}</b>`}</td></tr>`).join('')}</tbody></table>
+          <p class="muted" style="font-size:12.5px;margin:10px 0 0">Ändern in der Oberfläche der jeweiligen Box unter <b>WLAN › Funkkanal</b>: „Funkkanal-Einstellungen anpassen“, 2,4-GHz-Kanal festlegen.${allAuto ? ' Aktuell wählen alle Boxen ihren Kanal per <b>Autokanal</b> selbst – die Box berücksichtigt dabei auch Nachbar-WLANs, die FritzHub nicht sieht. Ein fester Kanal lohnt sich vor allem, wenn es spürbare Probleme gibt.' : ''}</p></div>` : ''}
+        ${r.five.length ? `<p class="muted" style="font-size:12.5px;margin:14px 0 0"><b>5 GHz:</b> ${r.five.map((a) => `${esc(a.name)} ${a.ch}`).join(' · ')}.${r.fiveShared.length ? ' Einige Geräte teilen sich einen 80-MHz-Kanalblock – bei Repeatern mit WLAN-Anbindung ist das so gewollt, weil sie auf dem Kanal des Mesh Masters verbunden sind.' : ''}</p>` : ''}
+      </div></div>`;
+  }
+
   // ------------------------------------------------------------------ calls
   const CALL = {
     incoming: ['callIn', 'Eingehend', 'incoming'],
@@ -1124,11 +1223,28 @@
     try { data = await api(`calls/${box.config.id}?days=${f.days}`); } catch (e) { el.innerHTML = errorBox(e.message); return; }
     if (stale(token)) return;
 
+    // numbers are compared without formatting and country prefix (+49 / 0049 -> 0)
+    const normNum = (n) => {
+      let d = String(n || '').replace(/[^\d]/g, '');
+      if (d.startsWith('0049')) d = `0${d.slice(4)}`;
+      else if (d.startsWith('49') && d.length > 10) d = `0${d.slice(2)}`;
+      return d;
+    };
+    const blockedMap = () => new Map((data.barring || []).map((b) => [normNum(b.number), b]));
     const kinds = { all: ['Alle', () => true], incoming: ['Eingehend', (c) => c.type.endsWith('incoming')], outgoing: ['Ausgehend', (c) => c.type.endsWith('outgoing')], missed: ['Verpasst', (c) => c.type === 'missed' || c.type === 'rejected'] };
+    const barringCard = () => `<div class="card"><div class="card-head"><h2>Gesperrte Nummern <span class="sub">${(data.barring || []).length}</span></h2></div>
+      ${data.barring_error ? `<div class="card-body">${errorBox(`Rufsperren nicht abrufbar: ${data.barring_error}`)}</div>` : `<div class="card-body flush"><div class="list">${(data.barring || []).map((b) => `<div class="list-item">
+        <div class="avatar err">${ic('ban')}</div><div class="grow"><div class="title">${esc(b.name || b.number)}</div>${b.name && b.name !== b.number ? `<div class="meta">${esc(b.number)}</div>` : ''}</div>
+        <button class="icon-btn" title="Sperre aufheben" data-unblock="${b.uid}">${ic('x')}</button></div>`).join('') || '<div class="muted" style="padding:6px 18px 12px;font-size:13px">Keine Nummern gesperrt. Über das Sperr-Symbol an einem Anruf lässt sich eine Nummer direkt sperren.</div>'}</div></div>
+      <form class="card-body row" id="blockAdd" style="gap:8px;border-top:1px solid var(--border);flex-wrap:wrap">
+        <input class="input" id="blockNumber" placeholder="Rufnummer" style="flex:1 1 120px" inputmode="tel">
+        <input class="input" id="blockName" placeholder="Bezeichnung (optional)" style="flex:1 1 140px">
+        <button class="btn danger" type="submit">${ic('ban')}Sperren</button></form>`}</div>`;
     const draw = () => {
       const q = f.q.trim().toLowerCase();
       const calls = data.calls.filter(kinds[f.kind][1]).filter((c) => !q || [c.name, c.number, c.own_number, c.device].some((v) => (v || '').toLowerCase().includes(q)));
       let lastDay = ''; let html = '';
+      const blocked = blockedMap();
       calls.forEach((c) => {
         const d = parseFritzDate(c.date);
         const day = d ? dayLabel(d) : '';
@@ -1137,9 +1253,12 @@
         const who = c.name || c.number || 'Unbekannt';
         html += `<div class="list-item">
           <div class="avatar ${cls === 'missed' || cls === 'rejected' ? 'err' : cls === 'outgoing' ? 'accent' : 'ok'}">${ic(icon, `call-dir ${cls}`)}</div>
-          <div class="grow"><div class="title" ${cls === 'missed' ? 'style="color:var(--err)"' : ''}>${esc(who)}</div>
+          <div class="grow"><div class="title" ${cls === 'missed' ? 'style="color:var(--err)"' : ''}>${esc(who)}${c.number && blocked.has(normNum(c.number)) ? ' <span class="badge err">Gesperrt</span>' : ''}</div>
           <div class="meta">${c.name && c.number ? `${esc(c.number)} · ` : ''}${label}${c.own_number ? ` · ${cls === 'outgoing' ? 'von' : 'an'} ${esc(c.own_number)}` : ''}${c.device ? ` · ${esc(c.device)}` : ''}</div></div>
           <div style="text-align:right" class="nowrap"><div class="num" style="font-weight:600">${d ? fmtTime(d) : esc(c.date)}</div><div class="faint" style="font-size:12px">${c.type === 'missed' ? '' : esc(fmtCallDuration(c.duration))}</div></div>
+          ${c.number && normNum(c.number).length > 2 && !blocked.has(normNum(c.number)) && !c.type.endsWith('outgoing')
+            ? `<button class="icon-btn danger" title="Nummer sperren" data-block="${esc(c.number)}" data-name="${esc(c.name || '')}">${ic('ban')}</button>`
+            : '<span style="width:34px;flex:none"></span>'}
         </div>`;
       });
       const counts = Object.fromEntries(Object.entries(kinds).map(([k, v]) => [k, data.calls.filter(v[1]).length]));
@@ -1150,10 +1269,35 @@
           <div class="input-icon search">${ic('search')}<input class="input" id="q" placeholder="Name oder Nummer …" value="${esc(f.q)}"></div>
           <div class="seg" id="kinds">${Object.entries(kinds).map(([k, v]) => `<button data-kind="${k}" class="${f.kind === k ? 'active' : ''}">${v[0]} <span class="n">${counts[k]}</span></button>`).join('')}</div>
         </div>
-        <div class="grid ${defl ? 'dash' : ''}"><div class="card">${html ? `<div class="list">${html}</div>` : empty('phone', 'Keine Anrufe', 'Im gewählten Zeitraum wurden keine passenden Anrufe gefunden.')}</div>${defl ? `<div>${defl}</div>` : ''}</div>`;
+        <div class="grid dash"><div class="card">${html ? `<div class="list">${html}</div>` : empty('phone', 'Keine Anrufe', 'Im gewählten Zeitraum wurden keine passenden Anrufe gefunden.')}</div>
+          <div>${barringCard()}${defl ? `<div style="height:16px"></div>${defl}` : ''}</div></div>`;
       const qi = $('#q');
       qi.addEventListener('input', () => { f.q = qi.value; store.set('callFilter', f); const pos = qi.selectionStart; draw(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); });
       $$('#kinds button').forEach((b) => b.addEventListener('click', () => { f.kind = b.dataset.kind; store.set('callFilter', f); draw(); }));
+      const block = async (number, name) => {
+        if (!(await confirmDialog('Nummer sperren?', `Anrufe von <b>${esc(name || number)}</b>${name ? ` (${esc(number)})` : ''} werden künftig von der FRITZ!Box abgewiesen. Die Sperre steht danach auch in der Box unter <b>Telefonie › Rufbehandlung › Rufsperren</b>.`, { ok: 'Sperren', danger: true }))) return;
+        try {
+          const r = await api(`callbarring/${box.config.id}`, { method: 'POST', body: { number, name: name || null } });
+          data.barring = [...(data.barring || []), { uid: r.uid, name: name || number, number }];
+          toast(`${name || number} ist gesperrt.`); draw();
+        } catch (e) { toast(e.message, 'err'); }
+      };
+      $$('[data-block]').forEach((b) => b.addEventListener('click', () => block(b.dataset.block, b.dataset.name)));
+      $$('[data-unblock]').forEach((b) => b.addEventListener('click', async () => {
+        const entry = data.barring.find((x) => String(x.uid) === b.dataset.unblock);
+        if (!(await confirmDialog('Sperre aufheben?', `Anrufe von <b>${esc(entry.name || entry.number)}</b> werden wieder durchgestellt.`, { ok: 'Entsperren' }))) return;
+        try {
+          await api(`callbarring/${box.config.id}/${entry.uid}`, { method: 'DELETE' });
+          data.barring = data.barring.filter((x) => x !== entry); toast('Sperre aufgehoben.'); draw();
+        } catch (e) { toast(e.message, 'err'); }
+      }));
+      const addForm = $('#blockAdd');
+      if (addForm) addForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const number = $('#blockNumber').value.trim();
+        if (normNum(number).length < 3) { toast('Bitte eine Rufnummer eingeben.', 'err'); return; }
+        block(number, $('#blockName').value.trim());
+      });
       $$('[data-defl]').forEach((c) => c.addEventListener('change', async () => {
         c.disabled = true;
         try { await api(`deflections/${box.config.id}/${c.dataset.defl}`, { method: 'POST', body: { enabled: c.checked } }); toast(c.checked ? 'Rufumleitung aktiviert.' : 'Rufumleitung deaktiviert.'); const d = data.deflections.find((x) => String(x.id) === c.dataset.defl); if (d) d.enabled = c.checked; } catch (e) { toast(e.message, 'err'); c.checked = !c.checked; }
@@ -1608,6 +1752,61 @@
     $('#reloadBtn').addEventListener('click', (e) => withBusy(e.currentTarget, async () => { await loadOverview(true); draw(); }));
   }
 
+  // --------------------------------------------------------------- settings
+  async function renderSettings(el, token) {
+    setHeader('Einstellungen', 'Benachrichtigungen und Überwachung');
+    el.innerHTML = loading(4);
+    let data;
+    try { data = await api('settings'); } catch (e) { el.innerHTML = errorBox(e.message); return; }
+    if (stale(token)) return;
+    const save = async (values, msg) => {
+      try { data = await api('settings', { method: 'POST', body: values }); if (msg) toast(msg); draw(); } catch (e) { toast(e.message, 'err'); }
+    };
+    const draw = () => {
+      const s = data.settings;
+      const since = new Date(data.tracking_since * 1000).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const rows = data.new_devices.map((d) => `<div class="list-item">
+        <div class="avatar accent">${ic(deviceIcon({ name: d.name, vendor: d.vendor }))}</div>
+        <div class="grow"><div class="title">${esc(d.name || 'Unbekanntes Gerät')}</div>
+          <div class="meta">${d.private ? 'Private MAC' : esc(d.vendor || 'Hersteller unbekannt')}${d.ip ? ` · ${esc(d.ip)}` : ''} · <span class="mono">${esc(d.mac)}</span></div></div>
+        <div class="faint nowrap" style="font-size:12.5px" title="${fmtDateTime(d.ts)}">${fmtAgo(d.ts)}</div></div>`).join('');
+      el.innerHTML = `<div class="grid cols-2">
+        <div class="card"><div class="card-head" style="padding-bottom:6px"><div class="avatar accent">${ic('bell')}</div>
+          <h2>Alarm bei neuen Geräten<div class="faint" style="font-weight:400;font-size:12.5px">Meldet Geräte, die zum ersten Mal im Heimnetz auftauchen</div></h2>${sw(s.new_device_alarm, 'id="setAlarm"')}</div>
+          <div class="card-body">
+            ${data.ha_available ? '' : `<div class="notice" style="margin-bottom:14px">${ic('alert')}<div>Keine Verbindung zur Home-Assistant-API – Meldungen können nicht zugestellt werden.</div></div>`}
+            <fieldset class="plain" ${s.new_device_alarm ? '' : 'disabled'}>
+              <label class="check" style="margin-bottom:14px"><input type="checkbox" id="setPersistent" ${s.notify_persistent ? 'checked' : ''}>Meldung in Home Assistant anzeigen (Glocke in der Seitenleiste)</label>
+              <div class="field"><label>Push-Benachrichtigung aufs Handy <span class="faint">(optional)</span></label>
+                <input class="input mono" id="setService" value="${esc(s.notify_service || '')}" placeholder="notify.mobile_app_dein_handy">
+                <span class="hint">Name des Benachrichtigungsdienstes aus Home Assistant (Entwicklerwerkzeuge › Aktionen, Suche nach „notify“). Leer = keine Push-Nachricht.</span></div>
+              <div class="row wrap" style="gap:8px"><button class="btn primary" id="saveSet">${ic('check')}Speichern</button><button class="btn" id="testSet">${ic('bell')}Testmeldung senden</button></div>
+            </fieldset>
+            <details style="margin-top:18px"><summary class="muted" style="cursor:pointer;font-size:13px">Für eigene Automationen</summary>
+              <p class="muted" style="font-size:13px;margin:10px 0 8px">Bei jedem neuen Gerät löst FritzHub (bei eingeschaltetem Alarm) das Ereignis <code>fritzhub_new_device</code> aus – mit <code>name</code>, <code>ip</code>, <code>mac</code>, <code>vendor</code> und <code>connected_to</code>. Beispiel:</p>
+              <pre class="code">triggers:
+  - trigger: event
+    event_type: fritzhub_new_device
+actions:
+  - action: light.turn_on
+    target:
+      entity_id: light.flur
+    data:
+      flash: short</pre></details>
+          </div></div>
+        <div class="card"><div class="card-head"><h2>Zuletzt erkannte neue Geräte <span class="sub">${data.new_devices.length}</span></h2></div>
+          <div class="card-body flush"><div class="list">${rows || `<div class="muted" style="padding:6px 18px 14px;font-size:13px">Seit ${since} ist kein neues Gerät aufgetaucht. Alle Geräte, die die FRITZ!Box beim ersten Start kannte, gelten als bekannt.</div>`}</div></div></div>
+      </div>`;
+      $('#setAlarm').addEventListener('change', (e) => save({ new_device_alarm: e.target.checked }, e.target.checked ? 'Alarm eingeschaltet.' : 'Alarm ausgeschaltet.'));
+      $('#saveSet').addEventListener('click', (e) => withBusy(e.currentTarget, () => save({ notify_persistent: $('#setPersistent').checked, notify_service: $('#setService').value.trim() }, 'Einstellungen gespeichert.')));
+      $('#testSet').addEventListener('click', (e) => withBusy(e.currentTarget, async () => {
+        await save({ notify_persistent: $('#setPersistent').checked, notify_service: $('#setService').value.trim() });
+        try { await api('settings/test-notification', { method: 'POST' }); toast('Testmeldung gesendet – schau in Home Assistant bzw. aufs Handy.'); } catch (err) { toast(err.message, 'err'); }
+      }));
+    };
+    draw();
+  }
+
   // ------------------------------------------------------------------ boxes
   let discovered = null;
   async function renderBoxes(el) {
@@ -1742,7 +1941,7 @@
 
   const RENDER = {
     dashboard: renderDashboard, devices: renderDevices, topology: renderTopology, wlan: renderWlan,
-    calls: renderCalls, tam: renderTam, nas: renderNas, system: renderSystem, boxes: renderBoxes,
+    calls: renderCalls, tam: renderTam, nas: renderNas, system: renderSystem, settings: renderSettings, boxes: renderBoxes,
   };
 
   // ------------------------------------------------------------------ theme

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .box import BoxError, FritzBox
-from .config import BoxStore, Options
+from .config import BoxStore, Options, Settings
 from .ha import SensorPublisher
 from .nas import FritzNas
 from .oui import vendors
@@ -33,9 +33,11 @@ class Hub:
         box_cls: type = FritzBox,
         nas_cls: type = FritzNas,
         stats: Stats | None = None,
+        settings: Settings | None = None,
     ) -> None:
         self.options = options
         self.stats = stats or Stats()
+        self.settings = settings or Settings()
         self._last_save = time.time()
         self.store = store or BoxStore()
         self._box_cls = box_cls
@@ -106,6 +108,9 @@ class Hub:
             self.stats.record_volume(box_id, wan.get("total_down"), wan.get("total_up"))
         if self._hosts_cache and now - self._hosts_cache[0] < HOSTS_TTL + 1:
             self.stats.mark_seen(self._hosts_cache[1], now)
+            new = self.stats.update_known(self._hosts_cache[1], now)
+            if new:
+                asyncio.get_running_loop().create_task(self._announce_new_devices(new))
         if now - self._last_save > 300:
             self._last_save = now
             asyncio.get_running_loop().run_in_executor(None, self.stats.save)
@@ -252,6 +257,47 @@ class Hub:
                 info["is_router"] = False
                 info["services"] = {**info["services"], "wan": False}
             st["info"] = info
+
+    # ------------------------------------------------------------ new devices
+    def describe_device(self, host: dict[str, Any]) -> dict[str, Any]:
+        vendor = vendors.lookup(host.get("mac")) or {}
+        client = self.wlan_clients.get(host.get("mac") or "")
+        return {
+            "name": host.get("name") or "Unbekanntes Gerät",
+            "ip": host.get("ip"),
+            "mac": host.get("mac"),
+            "vendor": "Private MAC (zufällig)" if vendor.get("private") else vendor.get("vendor"),
+            "connected_to": client["ap"] if client else None,
+            "band": client["band"] if client else None,
+        }
+
+    async def _announce_new_devices(self, hosts: list[dict[str, Any]]) -> None:
+        for host in hosts:
+            dev = self.describe_device(host)
+            _LOGGER.info("Neues Gerät: %s (%s, %s)", dev["name"], dev["mac"], dev["ip"])
+            if self.settings.get("new_device_alarm"):
+                try:
+                    await self.notify_new_device(dev)
+                except Exception as err:  # noqa: BLE001 - never break polling
+                    _LOGGER.warning("Benachrichtigung fehlgeschlagen: %s", err)
+
+    async def notify_new_device(self, dev: dict[str, Any]) -> None:
+        details = [f"**{dev['name']}**"]
+        details += [f"{label}: {dev[key]}" for key, label in (
+            ("vendor", "Hersteller"), ("ip", "IP"), ("mac", "MAC"), ("connected_to", "Verbunden über"),
+        ) if dev.get(key)]
+        message = "\n".join(details)
+        title = "Neues Gerät im Heimnetz"
+        await self.publisher.fire_event("fritzhub_new_device", dev)
+        if self.settings.get("notify_persistent"):
+            await self.publisher.call_service("persistent_notification.create", {
+                "title": title, "message": message,
+                "notification_id": f"fritzhub_new_{(dev.get('mac') or 'test').replace(':', '')}",
+            })
+        service = self.settings.get("notify_service")
+        if service:
+            push = " · ".join(v for v in (dev["name"], dev.get("vendor"), dev.get("ip")) if v)
+            await self.publisher.call_service(service, {"title": title, "message": push})
 
     def _demote_mesh_boxes(self) -> None:
         """FRITZ!Boxes used as mesh repeaters (IP client) still expose WAN services.
@@ -462,6 +508,7 @@ class Hub:
         # signal strength as reported by the access point the device is connected to
         for h in hosts:
             h.update(vendors.lookup(h["mac"]) or {})
+            h["new_since"] = self.stats.known_since(h["mac"]) or None
             seen = self.stats.seen(h["mac"]) or {}
             h["last_seen"] = seen.get("last")
             h["first_seen"] = seen.get("first")

@@ -61,6 +61,29 @@ erlaubt sein.
 | `verify_ssl` | `false` | TLS-Zertifikate der Box prüfen (FRITZ!Boxen nutzen selbstsignierte Zertifikate) |
 | `log_level` | `info` | Protokollierungsstufe |
 
+## Alarm bei neuen Geräten
+
+FritzHub merkt sich alle Geräte, die die FRITZ!Box kennt. Taucht eine unbekannte MAC-Adresse auf,
+gibt es – wenn unter **Einstellungen** eingeschaltet –
+
+- eine **Meldung in Home Assistant** (Glocke in der Seitenleiste),
+- optional eine **Push-Nachricht**, z. B. über `notify.mobile_app_dein_handy`,
+- das Ereignis **`fritzhub_new_device`** mit `name`, `ip`, `mac`, `vendor` und `connected_to` für eigene
+  Automationen.
+
+Beim ersten Start werden alle vorhandenen Geräte still als bekannt übernommen. Neue Geräte sind in der
+Geräteliste 7 Tage lang mit „Neu“ gekennzeichnet.
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: fritzhub_new_device
+actions:
+  - action: notify.mobile_app_dein_handy
+    data:
+      message: "Neues Gerät: {{ trigger.event.data.name }} ({{ trigger.event.data.vendor }})"
+```
+
 ## Home-Assistant-Entitäten
 
 Mit `publish_sensors: true` werden folgende Entitäten laufend aktualisiert
@@ -94,6 +117,7 @@ Nach einem Neustart von Home Assistant erscheinen sie wieder, sobald FritzHub da
 | Keine Geräte bei der Suche gefunden | TR-064 aktivieren; Box manuell mit IP hinzufügen |
 | „Anmeldung fehlgeschlagen“ | Benutzername/Kennwort prüfen; Benutzer braucht das Recht *FRITZ!Box Einstellungen* |
 | Anrufliste/Anrufbeantworter fehlen | Recht *Sprachnachrichten … und Anrufliste* vergeben |
+| Nummer sperren / Umbenennen schlägt fehl | Der Benutzer braucht zusätzlich das Recht *FRITZ!Box Einstellungen* |
 | Mesh-Topologie leer | Nur der Mesh Master liefert die Topologie – FRITZ!Box hinzufügen |
 | FRITZ!NAS nicht erreichbar | FTP-Zugriff aktivieren; Recht *Zugang zu NAS-Inhalten* vergeben |
 | Internet sperren nicht verfügbar | Funktion benötigt ein aktuelles FRITZ!OS und eine IPv4-Adresse des Geräts |

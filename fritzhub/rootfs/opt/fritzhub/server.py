@@ -16,6 +16,7 @@ from urllib.parse import quote
 
 import qrcode
 import qrcode.image.svg
+import aiohttp
 from aiohttp import web
 
 from . import __version__
@@ -230,6 +231,22 @@ async def host_wol(request: web.Request) -> web.Response:
     return _ok()
 
 
+@routes.post("/api/hosts/rename")
+async def host_rename(request: web.Request) -> web.Response:
+    hub = _hub(request)
+    data = await _json(request)
+    name = str(data.get("name") or "").strip()
+    if not name or len(name) > 63:
+        raise web.HTTPBadRequest(text="Der Name muss 1–63 Zeichen lang sein.")
+    routers = hub.routers()
+    if not routers:
+        raise BoxError("Keine Router-Box verfügbar.")
+    await hub.run(routers[0].set_host_name, str(data["mac"]), name)
+    hub._hosts_cache = None
+    hub._mesh_cache = None
+    return _ok({"name": name})
+
+
 @routes.post("/api/hosts/wan")
 async def host_wan(request: web.Request) -> web.Response:
     hub = _hub(request)
@@ -298,7 +315,8 @@ async def calls(request: web.Request) -> web.Response:
     box = hub.box(request.match_info["box_id"])
     days = max(1, min(int(request.query.get("days", "30")), 365))
     result = await asyncio.gather(
-        hub.run(box.calls, days), hub.run(box.deflections), return_exceptions=True
+        hub.run(box.calls, days), hub.run(box.deflections), hub.run(box.call_barring),
+        return_exceptions=True,
     )
     if isinstance(result[0], Exception):
         raise result[0]
@@ -306,8 +324,27 @@ async def calls(request: web.Request) -> web.Response:
         {
             "calls": result[0],
             "deflections": [] if isinstance(result[1], Exception) else result[1],
+            "barring": [] if isinstance(result[2], Exception) else result[2],
+            "barring_error": str(result[2]) if isinstance(result[2], Exception) else None,
         }
     )
+
+
+@routes.post("/api/callbarring/{box_id}")
+async def barring_add(request: web.Request) -> web.Response:
+    hub = _hub(request)
+    box = hub.box(request.match_info["box_id"])
+    data = await _json(request)
+    uid = await hub.run(box.call_barring_add, str(data.get("number") or ""), data.get("name") or None)
+    return _ok({"uid": uid})
+
+
+@routes.delete("/api/callbarring/{box_id}/{uid}")
+async def barring_delete(request: web.Request) -> web.Response:
+    hub = _hub(request)
+    box = hub.box(request.match_info["box_id"])
+    await hub.run(box.call_barring_delete, int(request.match_info["uid"]))
+    return _ok()
 
 
 @routes.post("/api/deflections/{box_id}/{deflection_id}")
@@ -524,6 +561,49 @@ async def nas_delete(request: web.Request) -> web.Response:
     nas = _nas(request)
     data = await _json(request)
     await asyncio.to_thread(nas.delete, data["path"], bool(data.get("dir")))
+    return _ok()
+
+
+# --------------------------------------------------------------- settings
+def _settings_payload(hub: Hub) -> dict[str, Any]:
+    from .oui import vendors
+
+    devices = []
+    for entry in hub.stats.new_devices:
+        vendor = vendors.lookup(entry.get("mac")) or {}
+        devices.append({**entry, "vendor": vendor.get("vendor"), "private": vendor.get("private", False)})
+    return {
+        "settings": dict(hub.settings.data),
+        "new_devices": devices,
+        "ha_available": hub.publisher.available,
+        "tracking_since": hub.stats.since,
+    }
+
+
+@routes.get("/api/settings")
+async def settings_get(request: web.Request) -> web.Response:
+    return _ok(_settings_payload(_hub(request)))
+
+
+@routes.post("/api/settings")
+async def settings_set(request: web.Request) -> web.Response:
+    hub = _hub(request)
+    data = await _json(request)
+    await asyncio.to_thread(hub.settings.update, data)
+    return _ok(_settings_payload(hub))
+
+
+@routes.post("/api/settings/test-notification")
+async def settings_test(request: web.Request) -> web.Response:
+    hub = _hub(request)
+    sample = {
+        "name": "Testgerät (FritzHub)", "ip": "192.168.178.99", "mac": "00:00:5E:00:53:01",
+        "vendor": "Beispiel GmbH", "connected_to": "FRITZ!Box", "band": "5 GHz",
+    }
+    try:
+        await hub.notify_new_device(sample)
+    except (RuntimeError, aiohttp.ClientError, asyncio.TimeoutError) as err:
+        raise BoxError(str(err)) from err
     return _ok()
 
 

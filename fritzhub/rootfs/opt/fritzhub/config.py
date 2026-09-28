@@ -138,3 +138,43 @@ class BoxStore:
                 return False
             self._save()
             return True
+
+
+SETTINGS_FILE = DATA_DIR / "settings.json"
+DEFAULT_SETTINGS: dict = {
+    "new_device_alarm": True,  # notify when an unknown device joins the network
+    "notify_persistent": True,  # show a notification in Home Assistant
+    "notify_service": "",  # optional push, e.g. "notify.mobile_app_iphone"
+}
+
+
+class Settings:
+    """Settings changed in the web UI (add-on options stay in options.json)."""
+
+    def __init__(self, path: Path = SETTINGS_FILE) -> None:
+        self._path = path
+        self._lock = threading.Lock()
+        self.data = dict(DEFAULT_SETTINGS)
+        try:
+            raw = json.loads(self._path.read_text(encoding="utf-8"))
+            self.data.update({k: v for k, v in raw.items() if k in DEFAULT_SETTINGS})
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError) as err:
+            _LOGGER.warning("Could not read %s: %s", self._path, err)
+
+    def get(self, key: str):
+        return self.data.get(key, DEFAULT_SETTINGS.get(key))
+
+    def update(self, values: dict) -> dict:
+        with self._lock:
+            for key, value in values.items():
+                if key not in DEFAULT_SETTINGS:
+                    continue
+                default = DEFAULT_SETTINGS[key]
+                self.data[key] = bool(value) if isinstance(default, bool) else str(value or "").strip()
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.data, indent=2), encoding="utf-8")
+            tmp.replace(self._path)
+            return dict(self.data)

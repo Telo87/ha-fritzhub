@@ -314,6 +314,16 @@ class FritzBox:
         }
 
     # ------------------------------------------------------------------ WLAN
+    def _channel_info(self, svc: str) -> dict[str, Any]:
+        ch = self.try_call(svc, "GetChannelInfo")
+        possible = [
+            c for c in (_int(p) for p in str(ch.get("NewPossibleChannels") or "").split(",")) if c
+        ]
+        return {
+            "auto_channel": _bool(ch.get("NewX_AVM-DE_AutoChannelEnabled")) if ch else None,
+            "possible_channels": possible,
+        }
+
     def wlan_services(self) -> list[int]:
         return [i for i in range(1, 5) if self.has(f"WLANConfiguration{i}")]
 
@@ -346,6 +356,7 @@ class FritzBox:
                     "band": band_label,
                     "guest": is_guest,
                     "clients": _int(assoc.get("NewTotalAssociations"), 0),
+                    **self._channel_info(svc),
                 }
             )
         return result
@@ -465,6 +476,13 @@ class FritzBox:
             )
         return hosts
 
+    def set_host_name(self, mac: str, name: str) -> None:
+        """Rename a device in the FRITZ!Box (Heimnetz > Netzwerk)."""
+        self.call("Hosts1", "X_AVM-DE_SetHostNameByMACAddress", NewMACAddress=mac, NewHostName=name)
+        # the friendly name (shown for mesh devices) is optional and not always writable
+        self.try_call("Hosts1", "X_AVM-DE_SetFriendlyNameByMAC", NewMACAddress=mac,
+                      **{"NewX_AVM-DE_FriendlyName": name})
+
     def wake_on_lan(self, mac: str) -> None:
         self.call("Hosts1", "X_AVM-DE_WakeOnLANByMACAddress", NewMACAddress=mac)
 
@@ -529,6 +547,39 @@ class FritzBox:
             }
             for d in _xml_items(xml_text, "Item")
         ]
+
+    # call barring ("Rufsperren") – stored as a phone book in the box
+    def call_barring(self) -> list[dict[str, Any]]:
+        if not self.has("X_AVM-DE_OnTel1"):
+            return []
+        url = self.call("X_AVM-DE_OnTel1", "GetCallBarringList").get("NewPhonebookURL")
+        if not url:
+            return []
+        root = ET.fromstring(self.fetch(url).content)
+        entries = []
+        for contact in root.iter("contact"):
+            uid = contact.findtext("uniqueid")
+            name = (contact.findtext("person/realName") or "").strip()
+            for number in contact.iter("number"):
+                if (number.text or "").strip():
+                    entries.append({"uid": _int(uid), "name": name or None, "number": number.text.strip()})
+        return entries
+
+    def call_barring_add(self, number: str, name: str | None = None) -> int | None:
+        number = "".join(ch for ch in number if ch.isdigit() or ch in "+*#")
+        if not number:
+            raise BoxError("Keine gültige Rufnummer.")
+        contact = ET.Element("contact")
+        ET.SubElement(contact, "category").text = "0"
+        ET.SubElement(ET.SubElement(contact, "person"), "realName").text = (name or number)[:64]
+        telephony = ET.SubElement(contact, "telephony", nid="1")
+        ET.SubElement(telephony, "number", type="home", prio="1", id="0").text = number
+        data = '<?xml version="1.0" encoding="utf-8"?>' + ET.tostring(contact, encoding="unicode")
+        result = self.call("X_AVM-DE_OnTel1", "SetCallBarringEntry", NewPhonebookEntryData=data)
+        return _int(result.get("NewPhonebookEntryUniqueID"))
+
+    def call_barring_delete(self, uid: int) -> None:
+        self.call("X_AVM-DE_OnTel1", "DeleteCallBarringEntryUID", NewPhonebookEntryUniqueID=int(uid))
 
     def set_deflection(self, deflection_id: int, enable: bool) -> None:
         self.call(

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.0
+
+- Neu: **Alarm bei neuen Geräten** – Meldung in Home Assistant, optional Push aufs Handy (`notify.…`) und Ereignis `fritzhub_new_device` für Automationen; auf der neuen Seite „Einstellungen“ ein-/ausschaltbar, mit Liste der zuletzt erkannten Geräte; „Neu“-Kennzeichen und Filter in der Geräteliste
+- Neu: **WLAN-Kanalprüfung** – zeigt die belegten 2,4-GHz-Kanäle aller Boxen/Repeater, warnt bei gemeinsamen oder überlappenden Kanälen und schlägt eine Verteilung auf 1 / 6 / 11 vor
+- Neu: **Nummer sperren** direkt aus der Anrufliste (Rufsperre der FRITZ!Box), Liste „Gesperrte Nummern“ mit Entsperren und manuellem Hinzufügen
+- Neu: **Geräte umbenennen** in der Geräteliste (Name wird in der FRITZ!Box gespeichert)
+
 ## 1.5.1
 
 - FRITZ!NAS: Ordner mit Umlauten und Sonderzeichen im Namen führten zu einem Fehler – UTF-8 wird jetzt aktiviert, sonst wird automatisch auf Latin-1 umgestellt
