@@ -6,7 +6,6 @@
 
 ## 1.0.3
 
-
 - Mesh-Rolle (Mesh Master / Mesh Repeater) wird aus der Mesh-Topologie ermittelt und überall angezeigt
 - Mesh-Repeater zeigen den Hinweis, dass WLAN- und weitere Einstellungen vom Mesh Master übernommen werden; WLAN-Bearbeitung ist dort gesperrt
 - FRITZ!Boxen im Mesh-Repeater-Betrieb werden zuverlässig nicht mehr als Internet-Router behandelt
