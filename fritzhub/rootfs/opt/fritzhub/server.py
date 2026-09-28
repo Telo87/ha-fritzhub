@@ -19,7 +19,7 @@ from aiohttp import web
 
 from . import __version__
 from .audio import to_playable_wav
-from .box import BoxError, FritzBox, fetch_usernames
+from .box import BoxError, FritzBox, fetch_usernames, format_firmware
 from .config import BoxConfig, Options
 from .discovery import discover
 from .hub import Hub
@@ -110,7 +110,7 @@ def _test_box(cfg: BoxConfig, verify_ssl: bool) -> dict[str, Any]:
         ) from err
     return {
         "model": dev.get("NewModelName") or box.fc.modelname,
-        "firmware": dev.get("NewSoftwareVersion"),
+        "firmware": format_firmware(dev.get("NewSoftwareVersion")),
         "router": box.is_router,
         "user": box.resolved_user,
     }

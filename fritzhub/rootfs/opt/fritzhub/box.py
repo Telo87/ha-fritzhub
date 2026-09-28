@@ -36,6 +36,19 @@ CALL_TYPES = {
 }
 
 
+def format_firmware(display: str | None) -> str | None:
+    """FRITZ!OS version without the hardware prefix.
+
+    ``272.08.40`` / ``272.08.40-136743`` (hardware.major.minor[-build]) -> ``8.40``
+    """
+    if not display:
+        return None
+    parts = display.split("-")[0].split(".")
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        return f"{int(parts[1])}.{parts[2]}"
+    return display
+
+
 class BoxError(Exception):
     """Error that is shown to the user."""
 
@@ -203,10 +216,10 @@ class FritzBox:
         ui = self.try_call("UserInterface1", "GetInfo")
         return {
             **self._static,
-            "firmware": dev.get("NewSoftwareVersion"),
+            "firmware": format_firmware(dev.get("NewSoftwareVersion")),
             "uptime": _int(dev.get("NewUpTime")),
             "update_available": _bool(ui.get("NewUpgradeAvailable")),
-            "update_version": ui.get("NewX_AVM-DE_Version") or None,
+            "update_version": format_firmware(ui.get("NewX_AVM-DE_Version")) or None,
             "update_info_url": ui.get("NewX_AVM-DE_InfoURL") or None,
             "is_router": self.is_router,
             "services": {

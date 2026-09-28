@@ -18,6 +18,8 @@ from typing import Any
 
 import aiohttp
 
+from .box import format_firmware
+
 _LOGGER = logging.getLogger(__name__)
 
 SSDP_ADDR = ("239.255.255.250", 1900)
@@ -139,18 +141,8 @@ def _parse_desc(xml_text: str) -> dict[str, Any] | None:
         "name": find("friendlyName"),
         "model": model or None,
         "manufacturer": manufacturer,
-        "firmware": _firmware(find("Display")),
+        "firmware": format_firmware(find("Display")),
     }
-
-
-def _firmware(display: str | None) -> str | None:
-    """``272.08.40-136743`` (hardware.major.minor-build) -> ``8.40``."""
-    if not display:
-        return None
-    parts = display.split("-")[0].split(".")
-    if len(parts) == 3 and all(p.isdigit() for p in parts):
-        return f"{int(parts[1])}.{parts[2]}"
-    return display
 
 
 def _default_gateway() -> str | None:

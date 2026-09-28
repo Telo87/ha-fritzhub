@@ -1,6 +1,11 @@
 # Changelog
 
+## 1.0.4
+
+- FRITZ!OS-Version ohne Hardware-Kennung anzeigen (z. B. „8.40“ statt „272.08.40“)
+
 ## 1.0.3
+
 
 - Mesh-Rolle (Mesh Master / Mesh Repeater) wird aus der Mesh-Topologie ermittelt und überall angezeigt
 - Mesh-Repeater zeigen den Hinweis, dass WLAN- und weitere Einstellungen vom Mesh Master übernommen werden; WLAN-Bearbeitung ist dort gesperrt

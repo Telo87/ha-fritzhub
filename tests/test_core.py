@@ -132,3 +132,13 @@ def test_box_store_keeps_password_on_edit(tmp_path):
     reloaded = BoxStore(tmp_path / "boxes.json").get(box.id)
     assert reloaded.password == "secret" and reloaded.name == "Box"
     assert "password" not in reloaded.public() and reloaded.public()["has_password"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("272.08.40", "8.40"), ("154.08.40-136743", "8.40"), ("290.08.24", "8.24"), ("8.02", "8.02"), (None, None)],
+)
+def test_format_firmware(raw, expected):
+    from fritzhub.box import format_firmware
+
+    assert format_firmware(raw) == expected
