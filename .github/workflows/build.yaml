@@ -27,9 +27,9 @@ jobs:
     outputs:
       architectures: ${{ steps.info.outputs.architectures }}
       build_matrix: ${{ steps.matrix.outputs.matrix }}
-      name: ${{ steps.info.outputs.name }}
-      description: ${{ steps.info.outputs.description }}
-      version: ${{ steps.info.outputs.version }}
+      name: ${{ steps.normalize.outputs.name }}
+      description: ${{ steps.normalize.outputs.description }}
+      version: ${{ steps.normalize.outputs.version }}
       publish: ${{ github.event_name == 'release' }}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -39,6 +39,21 @@ jobs:
         uses: home-assistant/actions/helpers/info@master
         with:
           path: "./${{ env.APP }}"
+
+      # The info action returns JSON-quoted strings ("1.0.0") – strip the quotes
+      - name: Normalize app information
+        id: normalize
+        env:
+          NAME: ${{ steps.info.outputs.name }}
+          DESCRIPTION: ${{ steps.info.outputs.description }}
+          VERSION: ${{ steps.info.outputs.version }}
+        run: |
+          unquote() { jq -r . <<<"$1" 2>/dev/null || echo "$1"; }
+          {
+            echo "name=$(unquote "$NAME")"
+            echo "description=$(unquote "$DESCRIPTION")"
+            echo "version=$(unquote "$VERSION")"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Prepare build matrix
         id: matrix
