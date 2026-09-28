@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.0
+
+- Neu: Datendurchsatz-Verlauf für 1 Stunde, 24 Stunden und 7 Tage (dauerhaft gespeichert)
+- Neu: Karte „Datenvolumen“ mit heute, aktuellem und letztem Monat sowie Tagesbalken der letzten 31 Tage
+- Neu: Spalte „Zuletzt gesehen“ und Filter „Lange offline“ (über 30 Tage) in der Geräteliste
+- Neu: Neustart mit Live-Statusanzeige pro Gerät (Befehl gesendet → startet neu → wieder online), auch für „Alle neu starten“
+- Diagramm-Achsen mit runden Werten
+
 ## 1.3.0
 
 - Neu: „Alle neu starten“ auf der Seite System – startet alle erreichbaren Geräte nacheinander neu, Repeater zuerst und den Mesh Master zuletzt

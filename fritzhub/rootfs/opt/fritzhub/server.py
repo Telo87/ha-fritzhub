@@ -505,7 +505,38 @@ async def nas_delete(request: web.Request) -> web.Response:
     return _ok()
 
 
+# ------------------------------------------------------------- statistics
+@routes.get("/api/history/{box_id}")
+async def history(request: web.Request) -> web.Response:
+    hub = _hub(request)
+    box_id = request.match_info["box_id"]
+    hub.box(box_id)
+    range_key = request.query.get("range", "1h")
+    if range_key == "1h":
+        return _ok([list(p) for p in hub.history.get(box_id, [])])
+    if range_key not in ("24h", "7d"):
+        raise web.HTTPBadRequest(text="Unbekannter Zeitraum.")
+    return _ok(await asyncio.to_thread(hub.stats.history, box_id, range_key))
+
+
+@routes.get("/api/volume/{box_id}")
+async def volume(request: web.Request) -> web.Response:
+    hub = _hub(request)
+    box_id = request.match_info["box_id"]
+    hub.box(box_id)
+    return _ok(await asyncio.to_thread(hub.stats.volume, box_id))
+
+
 # -------------------------------------------------------------------- system
+@routes.get("/api/system/ping")
+async def system_ping(request: web.Request) -> web.Response:
+    """Reachability of all boxes – used to follow reboots live."""
+    hub = _hub(request)
+    boxes = hub.active_boxes()
+    results = await asyncio.gather(*(hub.run(b.ping) for b in boxes))
+    return _ok({b.cfg.id: ok for b, ok in zip(boxes, results, strict=True)})
+
+
 @routes.post("/api/system/reboot-all")
 async def system_reboot_all(request: web.Request) -> web.Response:
     """Reboot every reachable box – repeaters first, the mesh master last.
@@ -563,10 +594,11 @@ def create_app(options: Options) -> web.Application:
     app = web.Application(middlewares=[guard], client_max_size=1024**3)
     app["options"] = options
     if os.environ.get("FRITZHUB_DEMO") == "1":
-        from .demo import DemoBox, DemoNas, demo_discover, demo_store
+        from .demo import DemoBox, DemoNas, demo_discover, demo_store, seed_demo_stats
 
         _LOGGER.warning("Demo mode – showing synthetic data")
         hub = Hub(options, store=demo_store(), box_cls=DemoBox, nas_cls=DemoNas)
+        seed_demo_stats(hub)
         app["discover"] = demo_discover
         app["test_box"] = lambda cfg, _verify: {"model": "FRITZ!Repeater 1200 AX", "firmware": "7.58", "user": cfg.username or "fritz1234"}
         app["usernames"] = lambda host, _port, _tls: ["fritz1234"] if host != "192.168.178.1" else ["homeassistant"]

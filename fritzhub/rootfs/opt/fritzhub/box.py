@@ -7,6 +7,7 @@ by the web server in a thread pool.
 from __future__ import annotations
 
 import logging
+import socket
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -610,6 +611,15 @@ class FritzBox:
         self.call("X_AVM-DE_TAM1", "SetEnable", NewIndex=int(tam), NewEnable=int(enable))
 
     # ---------------------------------------------------------------- system
+    def ping(self, timeout: float = 2.0) -> bool:
+        """Is the box reachable? Used to follow a reboot – no login needed."""
+        port = self.cfg.port or (49443 if self.cfg.use_tls else 49000)
+        try:
+            with socket.create_connection((self.cfg.host, port), timeout=timeout):
+                return True
+        except OSError:
+            return False
+
     def reboot(self) -> None:
         self.call("DeviceConfig1", "Reboot")
         self.reset()

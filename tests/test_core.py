@@ -231,3 +231,47 @@ def test_vendor_db_missing_file(tmp_path):
     from fritzhub.oui import VendorDB
 
     assert VendorDB(tmp_path / "missing.gz").lookup("3C:A6:2F:11:22:33")["vendor"] is None
+
+
+def test_stats_history_buckets(tmp_path):
+    from fritzhub.stats import Stats
+
+    st = Stats(tmp_path / "stats.json")
+    now = 1_790_000_000 // 1800 * 1800  # start of a 30-min bucket
+    for i in range(6):  # 6 samples within the same minute
+        st.record_rate("box", now + i * 10, 1000, 100)
+    st.record_rate("box", now + 60, 3000, 300)
+    assert st.data["history"]["box"][0] == [now, 6000, 600, 6]
+    # 24h view: 5-minute buckets, averaged per sample
+    assert st.history("box", "24h", now=now + 120) == [[now, 1286, 129]]
+
+
+def test_stats_volume_handles_counter_reset(tmp_path):
+    from datetime import date
+
+    from fritzhub.stats import Stats
+
+    st = Stats(tmp_path / "stats.json")
+    d1, d2 = date(2026, 8, 31), date(2026, 9, 1)
+    st.record_volume("box", 1000, 100, today=d1)  # first sample: baseline only
+    st.record_volume("box", 1500, 150, today=d1)
+    st.record_volume("box", 300, 30, today=d2)  # reconnect: counters restart at 0
+    st.record_volume("box", 800, 80, today=d2)
+    v = st.volume("box", today=d2)
+    assert v["prev_month"] == [500, 50]
+    assert v["month"] == [800, 80] and v["today"] == [800, 80]
+    assert v["since"] == "2026-08-31"
+    assert [d[0] for d in v["days"]] == ["2026-08-31", "2026-09-01"]
+
+
+def test_stats_last_seen_and_persistence(tmp_path):
+    from fritzhub.stats import Stats
+
+    path = tmp_path / "stats.json"
+    st = Stats(path)
+    st.mark_seen([{"mac": "AA", "active": True}, {"mac": "BB", "active": False}], now=100)
+    st.mark_seen([{"mac": "AA", "active": True}], now=200)
+    st.save()
+    again = Stats(path)
+    assert again.seen("AA") == {"first": 100, "last": 200}
+    assert again.seen("BB") is None

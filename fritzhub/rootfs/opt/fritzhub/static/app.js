@@ -137,6 +137,17 @@
     return d.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long', year: diff > 300 ? 'numeric' : undefined });
   }
   const fmtTime = (d) => d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  function fmtAgo(ts) {
+    const s = Date.now() / 1000 - ts;
+    if (s < 90) return 'gerade eben';
+    if (s < 3600) return `vor ${Math.round(s / 60)} Min`;
+    if (s < 86400) return `vor ${Math.round(s / 3600)} Std`;
+    const d = Math.round(s / 86400);
+    if (d === 1) return 'gestern';
+    if (d < 60) return `vor ${d} Tagen`;
+    return new Date(ts * 1000).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  }
+  const fmtDateTime = (ts) => new Date(ts * 1000).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
   const ago = (ts) => {
     if (!ts) return '';
     const s = Math.round(Date.now() / 1000 - ts);
@@ -233,6 +244,14 @@
     if (/esp|shelly|tasmota|tuya|hue|bulb|plug|sensor|zigbee|tado|wled|dect|sonoff/.test(n)) return 'chip';
     if (/pc|desktop|win|imac/.test(n)) return 'devices';
     return (h.interface || '').includes('802.11') ? 'smartphone' : 'devices';
+  }
+  // offline for more than 30 days (or never seen since tracking started 30+ days ago)
+  const STALE_DAYS = 30;
+  function isStale(h) {
+    if (h.active || !S.overview) return false;
+    const now = Date.now() / 1000;
+    const ref = h.last_seen || S.overview.tracking_since;
+    return now - ref > STALE_DAYS * 86400;
   }
   const isWlan = (h) => /802\.11|wlan|wi-?fi/i.test(h.interface || h.link_type || '');
 
@@ -427,8 +446,10 @@
           ${wan.dns && wan.dns.length ? `<dt>DNS</dt><dd class="mono">${wan.dns.map(esc).join('<br>')}</dd>` : ''}
         </dl></div></div>` : '';
 
-      const chartCard = router ? `<div class="card"><div class="card-head"><h2>Datendurchsatz <span class="sub">${esc(boxName(router))}</span></h2>
-          <div class="legend"><span><i style="background:var(--down)"></i>Download</span><span><i style="background:var(--up)"></i>Upload</span></div></div>
+      const range = store.get('chartRange', '1h');
+      const chartCard = router ? `<div class="card"><div class="card-head" style="flex-wrap:wrap"><h2>Datendurchsatz <span class="sub">${esc(boxName(router))}</span></h2>
+          <div class="legend hide-sm"><span><i style="background:var(--down)"></i>Download</span><span><i style="background:var(--up)"></i>Upload</span></div>
+          <div class="seg" id="chartRange">${[['1h', '1 Std'], ['24h', '24 Std'], ['7d', '7 Tage']].map(([k, l]) => `<button data-range="${k}" class="${range === k ? 'active' : ''}">${l}</button>`).join('')}</div></div>
           <div class="card-body"><div class="chart" id="chart"></div></div></div>` : '';
 
       const boxCards = boxes().map((b) => {
@@ -448,10 +469,15 @@
 
       el.innerHTML = `<div class="grid kpis">${kpis}</div>
         ${router ? `<div class="grid dash">${chartCard}${conn}</div>` : ''}
+        ${router ? `<div class="card" style="margin-top:16px" id="volCard">${volumeHTML(S.vol && S.vol.id === router.config.id ? S.vol.data : null, router)}</div>` : ''}
         ${weakCard(ov)}
         <div class="card-head" style="padding:26px 2px 12px"><h2>Mesh-Geräte</h2><a class="btn sm ghost" href="#/topology">${ic('topology')}Topologie</a></div>
         <div class="grid cols-3">${boxCards}</div>`;
-      if (router) drawChart($('#chart'), router.history || []);
+      if (router) {
+        routerChart(router);
+        loadVolume(router);
+        $$('#chartRange button').forEach((b) => b.addEventListener('click', () => { store.set('chartRange', b.dataset.range); draw(); }));
+      }
       const wl = $('[data-weak-filter]');
       if (wl) wl.addEventListener('click', () => { store.set('devFilter', { ...store.get('devFilter', { q: '', sort: 'name', dir: 1 }), kind: 'weak', q: '', sort: 'signal', dir: 1 }); });
     };
@@ -461,9 +487,74 @@
       api('hosts').then((h) => { S.hosts = h; S.overview.hosts_online = h.filter((x) => x.active).length; S.overview.hosts_total = h.length; keepScroll(draw); }).catch(() => {});
     }
     const timer = setInterval(async () => { try { await loadOverview(); keepScroll(draw); } catch { /* keep old */ } }, Math.max(5, S.overview.scan_interval) * 1000);
-    const onResize = () => { const r = mainRouter(); if (r && $('#chart')) drawChart($('#chart'), r.history || []); };
+    const onResize = () => { const r = mainRouter(); if (r) routerChart(r); };
     window.addEventListener('resize', onResize);
     S.cleanup.push(() => clearInterval(timer), () => window.removeEventListener('resize', onResize));
+  }
+
+  // Throughput chart: last hour from the live data, 24 h / 7 days from the stored history
+  function routerChart(router) {
+    const el = $('#chart');
+    if (!el) return;
+    const range = store.get('chartRange', '1h');
+    if (range === '1h') { drawChart(el, router.history || []); return; }
+    S.hist = S.hist || {};
+    const cache = S.hist[range];
+    const fresh = cache && cache.id === router.config.id;
+    if (fresh) drawChart(el, cache.data); else el.innerHTML = '<div class="empty" style="padding:90px 0">Verlauf wird geladen …</div>';
+    if ((fresh && Date.now() - cache.at < 60000) || S.histLoading) return;
+    S.histLoading = true;
+    api(`history/${router.config.id}?range=${range}`)
+      .then((data) => {
+        S.hist[range] = { id: router.config.id, at: Date.now(), data };
+        const target = $('#chart');
+        if (target && store.get('chartRange', '1h') === range) keepScroll(() => drawChart(target, data));
+      })
+      .catch(() => {})
+      .finally(() => { S.histLoading = false; });
+  }
+
+  function loadVolume(router) {
+    if (S.vol && S.vol.id === router.config.id && Date.now() - S.vol.at < 60000) return;
+    if (S.volLoading) return;
+    S.volLoading = true;
+    api(`volume/${router.config.id}`)
+      .then((data) => {
+        S.vol = { id: router.config.id, at: Date.now(), data };
+        const card = $('#volCard');
+        if (card) keepScroll(() => { card.innerHTML = volumeHTML(data, router); });
+      })
+      .catch(() => {})
+      .finally(() => { S.volLoading = false; });
+  }
+
+  function volumeHTML(v, router) {
+    const head = (sub) => `<div class="card-head"><h2>Datenvolumen <span class="sub">${sub}</span></h2></div>`;
+    if (!v) return `${head(esc(boxName(router)))}<div class="card-body"><div class="skeleton" style="height:150px"></div></div>`;
+    const now = new Date();
+    const monthName = (d) => d.toLocaleDateString('de-DE', { month: 'long' });
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const tile = (label, d) => `<div class="vol-tile"><div class="l">${label}</div><div class="v">${fmtBytes(d[0] + d[1])}</div>
+      <div class="s"><span style="color:var(--down)">↓ ${fmtBytes(d[0])}</span> · <span style="color:var(--up)">↑ ${fmtBytes(d[1])}</span></div></div>`;
+    const days = v.days || [];
+    const max = Math.max(1, ...days.map((d) => d[1] + d[2]));
+    const bars = days.map(([day, down, up], i) => {
+      const date = new Date(`${day}T12:00:00`);
+      const label = date.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
+      const tip = `${label}: ${fmtBytes(down + up)} (↓ ${fmtBytes(down)} · ↑ ${fmtBytes(up)})`;
+      const weekend = date.getDay() === 0 || date.getDay() === 6;
+      const showLabel = i === 0 || i === days.length - 1 || date.getDate() === 1 || date.getDay() === 1;
+      return `<div class="vb ${weekend ? 'we' : ''}" title="${esc(tip)}"><div class="stack" style="height:${((down + up) / max) * 100}%">
+          <i class="u" style="flex:${up}"></i><i class="d" style="flex:${down}"></i></div>
+        <span class="lbl">${showLabel ? date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) : ''}</span></div>`;
+    }).join('');
+    const since = v.since ? new Date(`${v.since}T12:00:00`).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : null;
+    return `${head(`${esc(boxName(router))}${since ? ` · gezählt seit ${since}` : ''}`)}
+      <div class="card-body">
+        <div class="vol-tiles">${tile('Heute', v.today)}${tile(`${monthName(now)}`, v.month)}${tile(`${monthName(prev)}`, v.prev_month)}</div>
+        ${days.length ? `<div class="vol-bars">${bars}</div>` : '<div class="empty" style="padding:30px 0">Daten werden gesammelt …</div>'}
+        <div class="faint" style="font-size:12px;margin-top:10px">Gezählt wird, solange FritzHub läuft. Die FRITZ!Box selbst zählt nur seit der letzten Neuverbindung.</div>
+      </div>`;
   }
 
   function weakCard(ov) {
@@ -499,16 +590,22 @@
     const line = (i) => pts.map((p, k) => `${k ? 'L' : 'M'}${x(p[0]).toFixed(1)},${y(p[i] * 8).toFixed(1)}`).join('');
     const area = (i) => `${line(i)}L${x(t1).toFixed(1)},${y(0)}L${x(t0).toFixed(1)},${y(0)}Z`;
     let grid = '';
-    for (let k = 0; k <= 4; k += 1) {
-      const v = (max / 4) * k; const yy = y(v).toFixed(1);
+    // 2.5·10ⁿ and 5·10ⁿ divide evenly into 5 steps, 1·10ⁿ and 2·10ⁿ into 4
+    const mant = max / 10 ** Math.floor(Math.log10(max));
+    const steps = mant === 2.5 || mant === 5 ? 5 : 4;
+    for (let k = 0; k <= steps; k += 1) {
+      const v = (max / steps) * k; const yy = y(v).toFixed(1);
       grid += `<line class="grid-line" x1="${pad.l}" x2="${W - pad.r}" y1="${yy}" y2="${yy}"/><text class="axis" x="${pad.l - 8}" y="${Number(yy) + 4}" text-anchor="end">${fmtBits(v)}</text>`;
     }
     const nT = Math.min(5, Math.floor(W / 120));
     for (let k = 0; k <= nT; k += 1) {
       const t = t0 + ((t1 - t0) / nT) * k;
+      const d = new Date(t * 1000);
       const label = t1 - t0 < 600
-        ? new Date(t * 1000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-        : fmtTime(new Date(t * 1000));
+        ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        : t1 - t0 > 2 * 86400
+          ? `${d.toLocaleDateString('de-DE', { weekday: 'short' })} ${d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}`
+          : fmtTime(d);
       grid += `<text class="axis" x="${x(t)}" y="${H - 6}" text-anchor="${k === 0 ? 'start' : k === nT ? 'end' : 'middle'}">${label}</text>`;
     }
     el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px">
@@ -534,7 +631,8 @@
       g.querySelector('.c1').setAttribute('cx', bx); g.querySelector('.c1').setAttribute('cy', y(best[1] * 8));
       g.querySelector('.c2').setAttribute('cx', bx); g.querySelector('.c2').setAttribute('cy', y(best[2] * 8));
       tip.style.display = ''; tip.style.left = `${(bx / W) * r.width}px`; tip.style.top = `${(y(Math.max(best[1], best[2]) * 8) / H) * r.height}px`;
-      tip.innerHTML = `<b>${fmtTime(new Date(best[0] * 1000))}</b><br><span style="color:var(--down)">↓ ${fmtBits(best[1] * 8, 1)}</span> · <span style="color:var(--up)">↑ ${fmtBits(best[2] * 8, 1)}</span>`;
+      const bd = new Date(best[0] * 1000);
+      tip.innerHTML = `<b>${t1 - t0 > 86400 ? `${bd.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })} ` : ''}${fmtTime(bd)}</b><br><span style="color:var(--down)">↓ ${fmtBits(best[1] * 8, 1)}</span> · <span style="color:var(--up)">↑ ${fmtBits(best[2] * 8, 1)}</span>`;
     });
     svg.querySelector('.hit').addEventListener('mouseleave', () => { g.style.display = 'none'; tip.style.display = 'none'; });
   }
@@ -555,6 +653,7 @@
       wlan: ['WLAN', (h) => h.active && isWlan(h)],
       lan: ['LAN', (h) => h.active && !isWlan(h)],
       guest: ['Gäste', (h) => h.guest],
+      stale: ['Lange offline', (h) => isStale(h)],
       weak: ['Schwaches WLAN', (h) => h.active && h.signal != null && h.signal < WEAK_SIGNAL],
       blocked: ['Gesperrt', (h) => h.wan_blocked],
     };
@@ -564,6 +663,7 @@
       ip: (a, b) => ipNum(a.ip) - ipNum(b.ip),
       conn: (a, b) => (a.connected_to || '').localeCompare(b.connected_to || ''),
       speed: (a, b) => (a.link_rate || a.speed * 1000 || 0) - (b.link_rate || b.speed * 1000 || 0),
+      seen: (a, b) => (b.active ? 2e12 : b.last_seen || 0) - (a.active ? 2e12 : a.last_seen || 0),
       vendor: (a, b) => (a.vendor || (a.private ? '~' : '~~')).localeCompare(b.vendor || (b.private ? '~' : '~~'), 'de', { sensitivity: 'base' }),
       signal: (a, b) => (a.active && a.signal != null ? a.signal : 999) - (b.active && b.signal != null ? b.signal : 999),
     };
@@ -595,6 +695,10 @@
           <td>${conn}</td>
           <td class="nowrap">${h.active && h.signal != null ? `<div class="row" style="gap:6px">${signalBars(h.signal)}</div>` : '<span class="faint">–</span>'}</td>
           <td class="nowrap num hide-sm">${rate}</td>
+          <td class="nowrap hide-sm" title="${h.last_seen ? `Zuletzt gesehen: ${fmtDateTime(h.last_seen)}` : ''}">${h.active
+            ? '<span style="color:var(--ok)">jetzt</span>'
+            : h.last_seen ? `<span class="${isStale(h) ? 'stale' : ''}">${fmtAgo(h.last_seen)}</span>`
+              : `<span class="faint" title="FritzHub zeichnet seit ${fmtDateTime(S.overview.tracking_since)} auf">vor ${new Date(S.overview.tracking_since * 1000).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}</span>`}</td>
           <td class="nowrap">${canBlock ? `<label class="row" style="gap:8px" title="Internetzugang erlauben">${sw(!h.wan_blocked, `data-wan="${esc(h.ip)}"`)}</label>` : '<span class="faint">–</span>'}</td>
           <td><div class="actions">${h.mac ? `<button class="icon-btn" title="Wake on LAN" data-wol="${esc(h.mac)}">${ic('power')}</button>` : ''}</div></td>
         </tr>`;
@@ -604,8 +708,8 @@
           <div class="seg" id="kinds">${Object.entries(kinds).filter(([k]) => counts[k] || k === 'all' || k === 'online').map(([k, v]) => `<button data-kind="${k}" class="${f.kind === k ? 'active' : ''}">${v[0]} <span class="n">${counts[k]}</span></button>`).join('')}</div>
         </div>
         <div class="card"><div class="table-wrap"><table class="table">
-          <thead><tr>${th('name', 'Gerät')}${th('ip', 'IP-Adresse')}<th class="hide-md" style="cursor:default">MAC</th>${th('vendor', 'Hersteller', 'hide-sm')}${th('conn', 'Verbunden über')}${th('signal', 'Signal')}${th('speed', 'Rate', 'hide-sm')}<th style="cursor:default">Internet</th><th></th></tr></thead>
-          <tbody>${rows || `<tr><td colspan="9">${empty('search', 'Keine Geräte gefunden', 'Passe Suche oder Filter an.')}</td></tr>`}</tbody>
+          <thead><tr>${th('name', 'Gerät')}${th('ip', 'IP-Adresse')}<th class="hide-md" style="cursor:default">MAC</th>${th('vendor', 'Hersteller', 'hide-sm')}${th('conn', 'Verbunden über')}${th('signal', 'Signal')}${th('speed', 'Rate', 'hide-sm')}${th('seen', 'Zuletzt gesehen', 'hide-sm')}<th style="cursor:default">Internet</th><th></th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="10">${empty('search', 'Keine Geräte gefunden', 'Passe Suche oder Filter an.')}</td></tr>`}</tbody>
         </table></div></div>`;
       const qi = $('#q');
       qi.addEventListener('input', () => { f.q = qi.value; store.set('devFilter', f); const pos = qi.selectionStart; draw(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); });
@@ -1281,10 +1385,95 @@
   }
 
   // ----------------------------------------------------------------- system
+  // Reboot several boxes one after another and follow them live:
+  // Wartet -> Befehl gesendet -> Startet neu -> Wieder online (or error / timeout)
+  const REBOOT_TIMEOUT = 10 * 60 * 1000;
+  const STATES = {
+    wait: ['clock', '', 'Wartet'],
+    sending: ['refresh', 'accent', 'Befehl wird gesendet …'],
+    sent: ['power', 'warn', 'Neustart ausgelöst – fährt herunter …'],
+    down: ['refresh', 'warn', 'Startet neu …'],
+    up: ['checkCircle', 'ok', 'Wieder online'],
+    error: ['alert', 'err', 'Fehler'],
+    timeout: ['alert', 'err', 'Keine Rückmeldung'],
+  };
+  const DONE = ['up', 'error', 'timeout'];
+  const mmss = (ms) => { const t = Math.round(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+
+  function rebootProgress(list, title = 'Alle Geräte werden neu gestartet') {
+    const rows = list.map((b) => ({ id: b.config.id, name: boxName(b), master: isMaster(b.info), state: 'wait', t: null, end: null, error: null }));
+    let closed = false; let offline = false; let timer = null;
+    const started = Date.now();
+
+    const render = (m) => {
+      const done = rows.filter((r) => DONE.includes(r.state)).length;
+      const ok = rows.filter((r) => r.state === 'up').length;
+      const finished = done === rows.length;
+      m.querySelector('#rbList').innerHTML = rows.map((r) => {
+        const [icon, cls, label] = STATES[r.state];
+        const spin = r.state === 'sending' || r.state === 'down';
+        let detail = '';
+        if (r.state === 'up') detail = `nach ${mmss(r.end - r.t)}`;
+        else if (r.state === 'error') detail = r.error || '';
+        else if (r.t && !DONE.includes(r.state)) detail = mmss(Date.now() - r.t);
+        return `<div class="list-item" style="padding:10px 4px">
+          <div class="avatar ${cls}" style="width:34px;height:34px">${ic(icon, spin ? 'spin' : '')}</div>
+          <div class="grow"><div class="title">${esc(r.name)}${r.master ? ' <span class="badge accent">Mesh Master</span>' : ''}</div>
+            <div class="meta" style="white-space:normal">${label}${detail ? ` · <span class="num">${esc(detail)}</span>` : ''}</div></div></div>`;
+      }).join('');
+      m.querySelector('#rbBar').style.width = `${(done / rows.length) * 100}%`;
+      m.querySelector('#rbHead').innerHTML = finished
+        ? `<b>${ok === rows.length ? (rows.length === 1 ? 'Das Gerät ist wieder online.' : 'Alle Geräte sind wieder online.') : `${ok} von ${rows.length} Geräten wieder online.`}</b> Dauer ${mmss(Date.now() - started)}`
+        : `${done} von ${rows.length} abgeschlossen · ${mmss(Date.now() - started)}`;
+      m.querySelector('#rbOffline').style.display = offline ? '' : 'none';
+      m.querySelector('#rbClose').textContent = finished ? 'Fertig' : 'Ausblenden';
+      if (finished && timer) { clearInterval(timer); timer = null; loadOverview(true).catch(() => {}); }
+    };
+
+    modal({
+      title,
+      body: `<div class="muted" style="font-size:13px;margin-bottom:8px" id="rbHead"></div>
+        <div class="bar" style="margin-bottom:6px"><i id="rbBar" style="width:0"></i></div>
+        <div class="notice" id="rbOffline" style="display:none;margin:10px 0;font-size:12.5px">${ic('alert')}<div>Verbindung zu Home Assistant ist gerade unterbrochen – vermutlich startet die Box neu, über die Home Assistant verbunden ist. Die Anzeige wird automatisch fortgesetzt.</div></div>
+        <div class="list" id="rbList"></div>`,
+      foot: '<span class="faint left" style="font-size:12px;align-self:center">Ausblenden beendet nur die Anzeige, nicht den Neustart.</span><button class="btn primary" data-close id="rbClose">Ausblenden</button>',
+      onMount(m) {
+        render(m);
+        // send the commands one after another: repeaters first, mesh master last
+        (async () => {
+          for (const r of rows) {
+            if (closed) return;
+            r.state = 'sending'; render(m);
+            try {
+              await api(`system/${r.id}/reboot`, { method: 'POST' });
+              r.state = 'sent'; r.t = Date.now();
+            } catch (err) { r.state = 'error'; r.error = err.message; }
+            render(m);
+            await new Promise((res) => setTimeout(res, 1500));
+          }
+        })();
+        // follow the boxes: reachable -> unreachable -> reachable again
+        timer = setInterval(async () => {
+          if (closed) return;
+          let ping = null;
+          try { ping = await api('system/ping'); offline = false; } catch { offline = true; }
+          rows.forEach((r) => {
+            if (!r.t || DONE.includes(r.state)) return;
+            if (Date.now() - r.t > REBOOT_TIMEOUT) { r.state = 'timeout'; return; }
+            if (!ping) return;
+            if (r.state === 'sent' && ping[r.id] === false) r.state = 'down';
+            else if (r.state === 'down' && ping[r.id] === true) { r.state = 'up'; r.end = Date.now(); }
+          });
+          if (!closed) render(m);
+        }, 3000);
+      },
+      onClose: () => { closed = true; if (timer) clearInterval(timer); },
+    });
+  }
+
   async function renderSystem(el) {
     setHeader('System', 'Geräteinformationen, Neustart und Ereignisse', `<button class="btn danger" id="rebootAll">${ic('power')}<span class="hide-sm">Alle neu starten</span></button><button class="btn" id="reloadBtn">${ic('refresh')}<span class="hide-sm">Aktualisieren</span></button>`);
-    $('#rebootAll').addEventListener('click', async (e) => {
-      const btn = e.currentTarget;
+    $('#rebootAll').addEventListener('click', async () => {
       const list = onlineBoxes();
       if (!list.length) { toast('Keine erreichbaren Geräte.', 'err'); return; }
       const slaves = list.filter((b) => isSlave(b.info));
@@ -1294,15 +1483,7 @@
         `Es werden nacheinander neu gestartet – erst die Repeater, zuletzt der Mesh Master:<ul style="margin:8px 0 10px;padding-left:20px">${names}</ul>`
         + '<b>Internet, WLAN und Telefonie sind danach für ca. 3–5 Minuten nicht verfügbar.</b> Auch Home Assistant verliert währenddessen die Verbindung zu WLAN-Geräten.',
         { ok: 'Alle neu starten', danger: true }))) return;
-      await withBusy(btn, async () => {
-        try {
-          const results = await api('system/reboot-all', { method: 'POST' });
-          const failed = results.filter((r) => !r.ok);
-          if (failed.length) toast(`Neustart fehlgeschlagen: ${failed.map((r) => `${r.name} (${r.error})`).join(', ')}`, 'err');
-          const ok = results.length - failed.length;
-          if (ok) toast(`Neustart für ${ok} ${ok === 1 ? 'Gerät' : 'Geräte'} ausgelöst.`);
-        } catch (err) { toast(err.message, 'err'); }
-      });
+      rebootProgress(slaves.concat(masters));
     });
     const draw = () => {
       el.innerHTML = `<div class="grid cols-3">${boxes().map((b) => {
@@ -1332,7 +1513,7 @@
       $$('[data-reboot]').forEach((btn) => btn.addEventListener('click', async () => {
         const b = findBox(btn.dataset.reboot);
         if (!(await confirmDialog(`${boxName(b)} neu starten?`, 'Während des Neustarts (ca. 2–4 Minuten) sind Internet, WLAN und Telefonie über dieses Gerät nicht verfügbar.', { ok: 'Neu starten', danger: true }))) return;
-        try { await api(`system/${b.config.id}/reboot`, { method: 'POST' }); toast('Neustart wurde ausgelöst.'); } catch (e) { toast(e.message, 'err'); }
+        rebootProgress([b], `${boxName(b)} wird neu gestartet`);
       }));
       $$('[data-reconnect]').forEach((btn) => btn.addEventListener('click', async () => {
         const b = findBox(btn.dataset.reconnect);

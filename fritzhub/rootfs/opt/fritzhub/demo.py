@@ -309,7 +309,15 @@ class DemoBox(FritzBox):
         self._tam_enabled[tam] = enable
 
     def reboot(self) -> None:
-        return None
+        self._reboot_at = time.time()
+        self._reboot_len = random.uniform(15, 35)
+
+    def ping(self, timeout: float = 2.0) -> bool:
+        started = getattr(self, "_reboot_at", None)
+        if started is None:
+            return True
+        elapsed = time.time() - started
+        return not 4 < elapsed < 4 + self._reboot_len
 
     def reconnect(self) -> None:
         return None
@@ -426,3 +434,33 @@ async def demo_discover() -> list[dict[str, Any]]:
     devices += [{"host": ip, "name": m, "model": m, "manufacturer": "AVM", "firmware": "7.58"} for ip, (m, _n, _k) in REPEATERS.items()]
     devices.append({"host": "192.168.178.32", "name": "FRITZ!Powerline 1260", "model": "FRITZ!Powerline 1260", "manufacturer": "AVM", "firmware": "7.57"})
     return devices
+
+
+def seed_demo_stats(hub) -> None:
+    """Fill history, data volume and "last seen" so all views show something."""
+    stats = hub.stats
+    master = next((c for c in hub.store.all() if c.host == MASTER), None)
+    if master is None or stats.data["history"].get(master.id):
+        return
+    now = int(time.time())
+    rnd = random.Random(7)
+    hist = []
+    for minute in range(now - 7 * 86400, now, 60):
+        hour = datetime.fromtimestamp(minute).hour
+        # evening peak, quiet night
+        load = 0.15 + 0.85 * max(0.0, math.sin((hour - 6) / 24 * 2 * math.pi)) ** 2
+        down = int((1_000_000 + 6_000_000 * load) * rnd.uniform(0.5, 1.6))
+        up = int((150_000 + 600_000 * load) * rnd.uniform(0.5, 1.6))
+        hist.append([minute // 60 * 60, down * 6, up * 6, 6])
+    stats.data["history"][master.id] = hist
+    days = {}
+    today = datetime.now().date()
+    for back in range(70, -1, -1):
+        day = today - timedelta(days=back)
+        factor = 1.4 if day.weekday() >= 5 else 1.0
+        days[day.isoformat()] = [int(rnd.uniform(18, 42) * factor * 1e9), int(rnd.uniform(2, 6) * factor * 1e9)]
+    stats.data["volume"][master.id] = {"days": days, "last": None}
+    stats.data["since"] = now - 45 * 86400
+    for i, _name in enumerate(OFFLINE):
+        if i < 3:
+            stats.data["seen"][_mac(100 + i)] = {"first": now - 44 * 86400, "last": now - (i * 19 + 2) * 86400 - 3600}

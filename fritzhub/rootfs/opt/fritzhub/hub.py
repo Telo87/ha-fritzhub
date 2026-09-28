@@ -14,6 +14,7 @@ from .config import BoxStore, Options
 from .ha import SensorPublisher
 from .nas import FritzNas
 from .oui import vendors
+from .stats import Stats
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,8 +32,11 @@ class Hub:
         store: BoxStore | None = None,
         box_cls: type = FritzBox,
         nas_cls: type = FritzNas,
+        stats: Stats | None = None,
     ) -> None:
         self.options = options
+        self.stats = stats or Stats()
+        self._last_save = time.time()
         self.store = store or BoxStore()
         self._box_cls = box_cls
         self._nas_cls = nas_cls
@@ -87,6 +91,24 @@ class Hub:
         if self._task:
             self._task.cancel()
         await self.publisher.close()
+        await asyncio.to_thread(self.stats.save, True)
+
+    def _record(self, now: float) -> None:
+        """Throughput history, data volume and "last seen" – after the mesh roles
+        are known, so mesh clients (which also report WAN data) are not counted."""
+        for box_id, st in self.state.items():
+            wan = st.get("wan")
+            if not wan or st.get("updated") != now:
+                continue
+            down, up = wan.get("rate_down") or 0, wan.get("rate_up") or 0
+            self.history.setdefault(box_id, deque(maxlen=HISTORY_POINTS)).append((int(now), down, up))
+            self.stats.record_rate(box_id, now, down, up)
+            self.stats.record_volume(box_id, wan.get("total_down"), wan.get("total_up"))
+        if self._hosts_cache and now - self._hosts_cache[0] < HOSTS_TTL + 1:
+            self.stats.mark_seen(self._hosts_cache[1], now)
+        if now - self._last_save > 300:
+            self._last_save = now
+            asyncio.get_running_loop().run_in_executor(None, self.stats.save)
 
     # --------------------------------------------------------------- helpers
     def box(self, box_id: str) -> FritzBox:
@@ -169,14 +191,10 @@ class Hub:
                 }
                 continue
             self.state[box.cfg.id] = {**result, "online": True, "error": None, "updated": now}
-            wan = result.get("wan")
-            if wan:
-                self.history[box.cfg.id].append(
-                    (int(now), wan.get("rate_down") or 0, wan.get("rate_up") or 0)
-                )
 
         await self._apply_mesh_roles()
         self._demote_mesh_boxes()
+        self._record(now)
 
         if now - self._last_wlan_poll > WLAN_POLL:
             self._last_wlan_poll = now
@@ -387,6 +405,7 @@ class Hub:
             "hosts_total": len(hosts) if hosts else None,
             "weak_wlan": self.weakest_wlan(),
             "wlan_signal_known": bool(self.wlan_clients),
+            "tracking_since": self.stats.since,
         }
 
     # ------------------------------------------------------- hosts & mesh
@@ -443,6 +462,9 @@ class Hub:
         # signal strength as reported by the access point the device is connected to
         for h in hosts:
             h.update(vendors.lookup(h["mac"]) or {})
+            seen = self.stats.seen(h["mac"]) or {}
+            h["last_seen"] = seen.get("last")
+            h["first_seen"] = seen.get("first")
             client = self.wlan_clients.get(h["mac"])
             if client and h["active"]:
                 h["signal"] = client["signal"]
