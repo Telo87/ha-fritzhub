@@ -134,3 +134,22 @@ def test_wlan_uplink_picks_fastest_link_and_converts_kbit():
 def test_wlan_uplink_none_for_lan_connected():
     box = _uplink_box({1: {"NewX_AVM-DE_SignalStrength": "0", "NewX_AVM-DE_Speed": "0"}, 2: {}})
     assert box.wlan_uplink() is None
+
+
+def test_mesh_parents_follow_chain_towards_master():
+    from fritzhub.hub import mesh_parents
+
+    infra = lambda i, role: {"id": i, "role": role, "infrastructure": True}  # noqa: E731
+    mesh = {
+        "nodes": [infra("m", "master"), infra("a", "slave"), infra("b", "slave"),
+                  {"id": "phone", "role": "unknown", "infrastructure": False}],
+        "links": [
+            {"source": "b", "target": "a", "type": "LAN", "rate_rx": 100000},
+            {"source": "m", "target": "a", "type": "LAN", "rate_rx": 1000000},
+            {"source": "b", "target": "phone", "type": "WLAN"},
+        ],
+    }
+    parents = mesh_parents(mesh)
+    assert parents["a"][0] == "m" and parents["a"][1]["rate_rx"] == 1000000
+    assert parents["b"][0] == "a" and parents["b"][1]["rate_rx"] == 100000
+    assert "phone" not in parents and "m" not in parents

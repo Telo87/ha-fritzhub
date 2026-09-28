@@ -249,7 +249,21 @@
   }
   // WLAN uplink of a repeater / mesh client ------------------------------------
   const mbit = (v) => (v ? fmtBits(v * 1e6) : '–');
+  // LAN links between FRITZ! devices should run at 1 Gbit/s or more
+  const LAN_MIN = 1000;
+  const lanSlow = (u) => !!u && u.type === 'lan' && !!u.speed && u.speed < LAN_MIN;
+  const uplinkClass = (u) => (!u ? '' : u.type === 'lan' ? (lanSlow(u) ? 'warn' : '') : signalClass(u.signal));
+  const LAN_CAUSES = 'Häufige Ursachen: ein Kabel mit nur 4 statt 8 Adern oder einer beschädigten Ader, ein alter Switch bzw. eine Netzwerkdose mit nur 100 Mbit/s, oder ein LAN-Anschluss im Energiesparmodus „Green Mode“ (FRITZ!Box: Heimnetz › Netzwerk › Netzwerkeinstellungen › LAN-Einstellungen).';
+  function lanNotice() {
+    const slow = boxes().filter((b) => b.online && lanSlow(b.uplink));
+    if (!slow.length) return '';
+    return `<div class="notice" style="margin-top:16px">${ic('alert')}<div><b>Langsame LAN-Anbindung:</b> ${slow.map((b) => `${esc(boxName(b))} mit ${mbit(b.uplink.speed)}${b.uplink.parent ? ` zu ${esc(b.uplink.parent)}` : ''}`).join(', ')}. Zwischen FRITZ!-Geräten sind mindestens 1 Gbit/s üblich – alle Geräte dahinter sind entsprechend ausgebremst. ${LAN_CAUSES}</div></div>`;
+  }
   function uplinkSummary(b) {
+    if (b.uplink && b.uplink.type === 'lan') {
+      const u = b.uplink;
+      return `<span class="row nowrap" style="gap:6px;display:inline-flex">${ic(lanSlow(u) ? 'alert' : 'ethernet')}<span>LAN${u.speed ? ` · ${mbit(u.speed)}` : ''}</span></span>`;
+    }
     if (b.uplink) {
       const u = b.uplink;
       return `<span class="row nowrap" style="gap:6px;display:inline-flex">${signalBars(u.signal, false)}<span>${esc(u.band || 'WLAN')} · ${u.signal} % · ${mbit(u.speed_tx)}</span></span>`;
@@ -267,6 +281,13 @@
   function uplinkDetail(n) {
     const u = n.uplink;
     if (!u) return '';
+    if (u.type === 'lan') {
+      return `<div class="list-group">LAN-Anbindung</div><div class="card-body" style="padding-top:10px"><dl class="kv">
+          <dt>Geschwindigkeit</dt><dd${lanSlow(u) ? ' style="color:var(--warn)"' : ''}>${u.speed ? mbit(u.speed) : 'unbekannt'}</dd>
+          ${u.max && u.max !== u.speed ? `<dt>Max. möglich</dt><dd>${mbit(u.max)}</dd>` : ''}
+          ${u.parent ? `<dt>Verbunden mit</dt><dd>${esc(u.parent)}</dd>` : ''}
+        </dl>${lanSlow(u) ? `<div class="notice" style="margin-top:10px;font-size:12.5px">${ic('alert')}<div>Nur ${mbit(u.speed)} – zwischen FRITZ!-Geräten sind mindestens 1 Gbit/s üblich. ${LAN_CAUSES}</div></div>` : ''}</div>`;
+    }
     const hist = n.uplink_history || [];
     const sig = hist.map((h) => h[1]).filter((v) => v != null);
     const minSig = sig.length ? Math.min(...sig) : null;
@@ -524,7 +545,7 @@
             <div><div class="l">Laufzeit</div><div class="v">${fmtUptime(info.uptime)}</div></div>
             <div><div class="l">WLAN-Geräte</div><div class="v">${clients}</div></div>
             <div><div class="l">Firmware</div><div class="v">${info.update_available ? `<span class="badge warn">Update ${esc(info.update_version || '')}</span>` : '<span style="color:var(--ok)">Aktuell</span>'}</div></div>
-          </div>${!isMaster(info) && (b.uplink || b.uplink_known) ? `<div class="uplink-row ${b.uplink ? signalClass(b.uplink.signal) : ''}"><span class="l">Anbindung</span>${uplinkSummary(b)}</div>` : ''}` : b.error ? `<div style="padding:0 18px 16px">${errorBox(b.error)}</div>` : ''}
+          </div>${!isMaster(info) && (b.uplink || b.uplink_known) ? `<div class="uplink-row ${uplinkClass(b.uplink)}"><span class="l">Anbindung</span>${uplinkSummary(b)}</div>` : ''}` : b.error ? `<div style="padding:0 18px 16px">${errorBox(b.error)}</div>` : ''}
         </div>`;
       }).join('');
 
@@ -532,6 +553,7 @@
         ${router ? `<div class="grid dash">${chartCard}${conn}</div>` : ''}
         ${router ? `<div class="card" style="margin-top:16px" id="volCard">${volumeHTML(S.vol && S.vol.id === router.config.id ? S.vol.data : null, router)}</div>` : ''}
         ${weakCard(ov)}
+        ${lanNotice()}
         <div class="card-head" style="padding:26px 2px 12px"><h2>Mesh-Geräte</h2><a class="btn sm ghost" href="#/topology">${ic('topology')}Topologie</a></div>
         <div class="grid cols-3">${boxCards}</div>`;
       if (router) {
@@ -948,13 +970,14 @@
       grow(x, y, x + NODE_W, y + NODE_H);
       t.children.forEach((c) => {
         const up = c.node.uplink;
-        links += `<path class="t-link ${isWlanLink(c.link) || up ? 'wlan' : 'lan'} ${up ? `q-${signalClass(up.signal)}` : ''}" d="${curve(t.cx, y + NODE_H, c.cx, c.y)}"/>`;
+        const wlanUp = up && up.type !== 'lan';
+        links += `<path class="t-link ${isWlanLink(c.link) || wlanUp ? 'wlan' : 'lan'} ${wlanUp ? `q-${signalClass(up.signal)}` : lanSlow(up) ? 'q-slow' : ''}" d="${curve(t.cx, y + NODE_H, c.cx, c.y)}"/>`;
         if (c.link) {
           // label on the bezier curve at t=0.68 – close to the child, so siblings don't overlap
           const s = 0.68; const u = 1 - s; const y0 = y + NODE_H; const my = (y0 + c.y) / 2;
           const lx = t.cx * (u ** 3 + 3 * u * u * s) + c.cx * (3 * u * s * s + s ** 3);
           const ly = y0 * u ** 3 + my * (3 * u * u * s + 3 * u * s * s) + c.y * s ** 3;
-          const txt = up ? `${up.band || 'WLAN'} · ${up.signal} % · ${mbit(up.speed_tx)}` : linkLabel(c.link); const w = txt.length * 6.3 + 16;
+          const txt = wlanUp ? `${up.band || 'WLAN'} · ${up.signal} % · ${mbit(up.speed_tx)}` : `${linkLabel(c.link)}${lanSlow(up) ? ' – langsam!' : ''}`; const w = txt.length * 6.3 + 16;
           labels += `<g class="t-label"><rect x="${lx - w / 2}" y="${ly - 11}" width="${w}" height="22" rx="11"/><text x="${lx}" y="${ly + 4}" text-anchor="middle">${esc(txt)}</text></g>`;
         }
         walk(c);

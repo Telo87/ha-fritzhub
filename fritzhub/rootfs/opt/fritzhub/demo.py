@@ -250,7 +250,7 @@ class DemoBox(FritzBox):
             mac = _mac(hash(ip) % 1000)
             nodes.append({"id": nid, "name": name, "mac": mac, "macs": [mac], "role": "slave", "meshed": True,
                           "infrastructure": True, "model": model, "manufacturer": "AVM", "firmware": "7.58"})
-            rate = 1_000_000 if kind == "LAN" else 1_201_000
+            rate = (100_000 if ip == "192.168.178.30" else 1_000_000) if kind == "LAN" else 1_201_000
             links.append({"id": f"l-{ip}", "source": "n-master", "target": nid, "type": kind,
                           "rate_rx": rate, "rate_tx": rate if kind == "LAN" else 960_000,
                           "max_rx": rate, "max_tx": rate, "iface_source": None, "iface_target": None,

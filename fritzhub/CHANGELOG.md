@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.1
+
+- Anbindung per LAN zeigt die tatsächliche Geschwindigkeit („LAN · 1 Gbit/s“) und warnt, wenn ein Repeater bzw. eine Mesh-Box mit weniger als 1 Gbit/s verbunden ist – mit Hinweis auf typische Ursachen (Kabel, Switch, Green Mode); in Übersicht, System und Topologie
+
 ## 1.8.0
 
 - Neu: **WLAN-Anbindung der Repeater** – Signalstärke, aktuelle und maximale Sende-/Empfangsrate, Band, Kanal, Kanalbreite, Standard und Multi-Link (Wi-Fi 7) für jeden per WLAN angebundenen Repeater bzw. Mesh-Client

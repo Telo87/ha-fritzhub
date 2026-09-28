@@ -58,6 +58,7 @@ class Hub:
         self._hosts_cache: tuple[float, list[dict[str, Any]]] | None = None
         self._last_phone_poll = 0.0
         self._mesh_roles: dict[str, str] = {}
+        self._box_nodes: dict[str, str] = {}  # box id -> mesh node id
         self.wlan_clients: dict[str, dict[str, Any]] = {}
         # WLAN uplink of repeaters / mesh clients: {box_id: {...}} + 1 h history
         self.uplinks: dict[str, dict[str, Any] | None] = {}
@@ -240,15 +241,16 @@ class Hub:
             ip_to_mac = {h["ip"]: h["mac"] for h in hosts if h.get("ip") and h.get("mac")}
             mac_to_node = {m: n for n in mesh["nodes"] for m in n["macs"]}
             roles: dict[str, str] = {}
+            master_node = next((n for n in mesh["nodes"] if n["role"] == "master"), None)
             for box in self.active_boxes():
                 node = mac_to_node.get(ip_to_mac.get(box.cfg.host, ""))
                 if node and node["role"] in ("master", "slave"):
                     roles[box.cfg.id] = node["role"]
-                elif box.cfg.id == mesh.get("source") and any(
-                    n["role"] == "master" for n in mesh["nodes"]
-                ):
+                    self._box_nodes[box.cfg.id] = node["id"]
+                elif box.cfg.id == mesh.get("source") and master_node:
                     # the master itself is usually not part of its own host list
                     roles[box.cfg.id] = "master"
+                    self._box_nodes[box.cfg.id] = master_node["id"]
             if roles:
                 self._mesh_roles = roles
         roles = self._mesh_roles
@@ -598,14 +600,29 @@ class Hub:
         ]
         results = await asyncio.gather(*(self.run(b.wlan_uplink) for b in boxes), return_exceptions=True)
         now = int(time.time())
+        mesh = self._mesh_cache[1] if self._mesh_cache else None
+        parents = mesh_parents(mesh) if mesh else {}
+        names = {n["id"]: n["name"] for n in mesh["nodes"]} if mesh else {}
         for box, result in zip(boxes, results, strict=True):
             if isinstance(result, Exception):
                 _LOGGER.debug("Uplink %s: %s", box.cfg.host, result)
                 continue
-            self.uplinks[box.cfg.id] = result
+            parent_id, link = parents.get(self._box_nodes.get(box.cfg.id, ""), (None, None))
+            parent = names.get(parent_id)
             if result:
+                result = {**result, "type": "wlan", "parent": parent}
                 hist = self.uplink_history.setdefault(box.cfg.id, deque(maxlen=120))
                 hist.append((now, result["signal"], result["speed_tx"], result["speed_rx"]))
+            elif link and (link.get("type") or "").upper() != "WLAN":
+                rate = max(link.get("rate_rx") or 0, link.get("rate_tx") or 0)
+                top = max(link.get("max_rx") or 0, link.get("max_tx") or 0)
+                result = {
+                    "type": "lan",
+                    "speed": round(rate / 1000) if rate else None,  # kbit/s -> Mbit/s
+                    "max": round(top / 1000) if top else None,
+                    "parent": parent,
+                }
+            self.uplinks[box.cfg.id] = result
 
     async def _poll_wlan_clients(self) -> None:
         """Collect WLAN devices incl. signal strength from every box / repeater."""
@@ -693,6 +710,34 @@ class Hub:
                 node["box_id"] = mesh.get("source")
         mesh["nodes"] = nodes
         return mesh
+
+
+def mesh_parents(mesh: dict[str, Any]) -> dict[str, tuple[str, dict[str, Any]]]:
+    """For every mesh node: (parent node id, link) on the way to the master.
+
+    Only links between mesh devices (boxes / repeaters) are considered, so a
+    chain like master -> repeater A -> repeater B resolves correctly.
+    """
+    nodes = {n["id"]: n for n in mesh.get("nodes", [])}
+    master = next((n["id"] for n in nodes.values() if n["role"] == "master"), None)
+    if not master:
+        return {}
+    adj: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    for link in mesh.get("links", []):
+        a, b = link["source"], link["target"]
+        if nodes.get(a, {}).get("infrastructure") and nodes.get(b, {}).get("infrastructure"):
+            adj.setdefault(a, []).append((b, link))
+            adj.setdefault(b, []).append((a, link))
+    parents: dict[str, tuple[str, dict[str, Any]]] = {}
+    queue, seen = [master], {master}
+    while queue:
+        current = queue.pop(0)
+        for neighbour, link in adj.get(current, []):
+            if neighbour not in seen:
+                seen.add(neighbour)
+                parents[neighbour] = (current, link)
+                queue.append(neighbour)
+    return parents
 
 
 def _parse_date(value: str | None) -> datetime | None:
