@@ -19,7 +19,7 @@ from aiohttp import web
 
 from . import __version__
 from .audio import to_playable_wav
-from .box import BoxError, FritzBox
+from .box import BoxError, FritzBox, fetch_usernames
 from .config import BoxConfig, Options
 from .discovery import discover
 from .hub import Hub
@@ -112,20 +112,55 @@ def _test_box(cfg: BoxConfig, verify_ssl: bool) -> dict[str, Any]:
         "model": dev.get("NewModelName") or box.fc.modelname,
         "firmware": dev.get("NewSoftwareVersion"),
         "router": box.is_router,
+        "user": box.resolved_user,
     }
+
+
+async def _apply_copy_from(request: web.Request, data: dict[str, Any]) -> None:
+    """"Copy credentials from another box" – typical for mesh repeaters.
+
+    The password is taken over. The user name only if it exists on the target:
+    mesh clients usually have their own auto-generated user (``fritz1234``),
+    which is then picked automatically (empty user name).
+    """
+    src = _hub(request).store.get(data.get("copy_from") or "")
+    if not src:
+        return
+    data["password"] = src.password
+    if data.get("username"):
+        return
+    try:
+        users = await asyncio.to_thread(
+            request.app["usernames"],
+            str(data.get("host", "")).strip(),
+            int(data["port"]) if data.get("port") else None,
+            bool(data.get("use_tls")),
+        )
+    except BoxError:
+        users = []
+    data["username"] = src.username if src.username in users else ""
+
+
+@routes.get("/api/boxes/users")
+async def box_users(request: web.Request) -> web.Response:
+    host = request.query.get("host", "").strip()
+    if not host:
+        raise web.HTTPBadRequest(text="Adresse fehlt.")
+    port = int(request.query["port"]) if request.query.get("port") else None
+    users = await asyncio.to_thread(
+        request.app["usernames"], host, port, request.query.get("tls") == "1"
+    )
+    return _ok(users)
 
 
 @routes.post("/api/boxes/test")
 async def box_test(request: web.Request) -> web.Response:
     hub = _hub(request)
     data = await _json(request)
-    password = data.get("password")
     if data.get("copy_from"):
-        src = hub.store.get(data["copy_from"])
-        if src:
-            data["username"] = data.get("username") or src.username
-            password = src.password
-    elif not password and data.get("id"):
+        await _apply_copy_from(request, data)
+    password = data.get("password")
+    if not password and data.get("id"):
         stored = hub.store.get(data["id"])
         password = stored.password if stored else ""
     cfg = BoxConfig(
@@ -146,12 +181,8 @@ async def box_save(request: web.Request) -> web.Response:
     data = await _json(request)
     if not str(data.get("host", "")).strip():
         raise web.HTTPBadRequest(text="Adresse fehlt.")
-    # "copy credentials from another box" – typical for mesh repeaters
     if data.get("copy_from"):
-        src = hub.store.get(data["copy_from"])
-        if src:
-            data["username"] = data.get("username") or src.username
-            data["password"] = src.password
+        await _apply_copy_from(request, data)
     cfg = hub.store.upsert(data)
     hub.config_changed(cfg.id)
     return _ok(cfg.public())
@@ -506,11 +537,13 @@ def create_app(options: Options) -> web.Application:
         _LOGGER.warning("Demo mode – showing synthetic data")
         hub = Hub(options, store=demo_store(), box_cls=DemoBox, nas_cls=DemoNas)
         app["discover"] = demo_discover
-        app["test_box"] = lambda cfg, _verify: {"model": "FRITZ!Repeater 1200 AX", "firmware": "7.58"}
+        app["test_box"] = lambda cfg, _verify: {"model": "FRITZ!Repeater 1200 AX", "firmware": "7.58", "user": cfg.username or "fritz1234"}
+        app["usernames"] = lambda host, _port, _tls: ["fritz1234"] if host != "192.168.178.1" else ["homeassistant"]
     else:
         hub = Hub(options)
         app["discover"] = discover
         app["test_box"] = _test_box
+        app["usernames"] = fetch_usernames
     app["hub"] = hub
 
     async def on_startup(_app: web.Application) -> None:

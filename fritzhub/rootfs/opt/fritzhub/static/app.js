@@ -1237,7 +1237,7 @@
           <div class="field"><label>Adresse</label><input class="input" id="f_host" value="${esc(cfg.host || '')}" placeholder="192.168.178.1 oder fritz.box"></div>
           <div class="field"><label>Anzeigename <span class="faint">(optional)</span></label><input class="input" id="f_name" value="${esc(cfg.name || '')}" placeholder="z. B. Repeater Obergeschoss"></div>
           ${others.length ? `<div class="field span-2"><label>Zugangsdaten</label><select class="input" id="f_copy"><option value="">Eigene Zugangsdaten eingeben</option>${others.map((b) => `<option value="${b.config.id}" ${isNew && master && b === master && cfg.host && !/^(fritz\.box|192\.168\.178\.1)$/.test(cfg.host) ? 'selected' : ''}>Übernehmen von „${esc(boxName(b))}“</option>`).join('')}</select></div>` : ''}
-          <div class="field cred"><label>Benutzername</label><input class="input" id="f_user" value="${esc(cfg.username || '')}" autocomplete="off" placeholder="leer, falls nur Kennwort"></div>
+          <div class="field cred"><label>Benutzername</label><input class="input" id="f_user" list="f_users" value="${esc(cfg.username || '')}" autocomplete="off" placeholder="leer = automatisch"><datalist id="f_users"></datalist><span class="hint" id="f_userhint"></span></div>
           <div class="field cred"><label>Kennwort</label><input class="input" id="f_pass" type="password" autocomplete="new-password" placeholder="${cfg.has_password ? 'unverändert' : ''}"></div>
         </div>
         <details style="margin-bottom:12px"><summary class="muted" style="cursor:pointer;font-size:13px">Erweitert</summary>
@@ -1255,6 +1255,22 @@
           const copySel = v('#f_copy');
           const syncCopy = () => { const on = copySel && copySel.value; $$('.cred', m).forEach((f) => { f.style.display = on ? 'none' : ''; }); };
           if (copySel) { copySel.addEventListener('change', syncCopy); syncCopy(); }
+          // user names that exist on the box (readable without login)
+          let usersFor = null;
+          const loadUsers = async () => {
+            const host = v('#f_host').value.trim();
+            if (!host || host === usersFor) return;
+            usersFor = host;
+            try {
+              const users = await api(`boxes/users?host=${encodeURIComponent(host)}${v('#f_port').value ? `&port=${v('#f_port').value}` : ''}${v('#f_tls').checked ? '&tls=1' : ''}`);
+              if (usersFor !== host) return;
+              v('#f_users').innerHTML = users.map((u) => `<option value="${esc(u)}">`).join('');
+              v('#f_userhint').textContent = users.length ? `Benutzer auf diesem Gerät: ${users.join(', ')}` : '';
+              if (users.length) v('#f_user').placeholder = `leer = automatisch (${users[0]})`;
+            } catch { v('#f_userhint').textContent = ''; }
+          };
+          v('#f_host').addEventListener('change', loadUsers);
+          loadUsers();
           const payload = () => {
             const copy = copySel && copySel.value;
             return {
@@ -1272,7 +1288,7 @@
             msg(`<div class="notice info">${ic('refresh', 'spin')}<div>Verbinde mit ${esc(p.host)} …</div></div>`);
             try {
               const r = await api('boxes/test', { method: 'POST', body: p });
-              msg(`<div class="notice info" style="background:var(--ok-soft)">${ic('checkCircle')}<div>Verbunden mit <b>${esc(r.model || 'FRITZ!')}</b>${r.firmware ? ` (FRITZ!OS ${esc(r.firmware)})` : ''}.</div></div>`);
+              msg(`<div class="notice info" style="background:var(--ok-soft)">${ic('checkCircle')}<div>Verbunden mit <b>${esc(r.model || 'FRITZ!')}</b>${r.firmware ? ` (FRITZ!OS ${esc(r.firmware)})` : ''}${r.user ? ` als Benutzer <b>${esc(r.user)}</b>` : ''}.</div></div>`);
               if (!v('#f_name').value.trim() && r.model) v('#f_name').placeholder = r.model;
               return true;
             } catch (e) { msg(errorBox(e.message)); return false; }

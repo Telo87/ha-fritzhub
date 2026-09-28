@@ -33,7 +33,10 @@ Es wird empfohlen, einen eigenen Benutzer (z. B. `homeassistant`) unter
 | Zugang zu NAS-Inhalten | FRITZ!NAS |
 
 Ist die FRITZ!Box nur mit einem Kennwort (ohne Benutzername) gesichert, das Feld *Benutzername*
-leer lassen.
+leer lassen. FritzHub ermittelt den Benutzer dann automatisch: FRITZ!OS legt dafür intern einen
+Benutzer wie `fritz1234` an. Das gilt besonders für **Mesh-Clients** (FRITZ!Box im Repeater-Betrieb,
+FRITZ!Repeater) – hier genügt meist das Kennwort der Mesh-Master-Box. Die auf einem Gerät
+vorhandenen Benutzer zeigt das Formular als Vorschläge an.
 
 ### FRITZ!NAS
 

@@ -18,6 +18,7 @@ import urllib3
 from fritzconnection import FritzConnection
 from fritzconnection.core.exceptions import FritzConnectionException
 from fritzconnection.lib.fritzhosts import FritzHosts
+from requests.auth import HTTPDigestAuth
 
 from .config import BoxConfig
 
@@ -59,6 +60,32 @@ def _xml_items(xml_text: str, tag: str) -> list[dict[str, str]]:
     return items
 
 
+def usernames(fc: FritzConnection) -> list[tuple[str, bool]]:
+    """User names of a box as ``[(name, last_logged_in)]`` – works without login."""
+    try:
+        xml_text = fc.call_action("LANConfigSecurity1", "X_AVM-DE_GetUserList")[
+            "NewX_AVM-DE_UserList"
+        ]
+        root = ET.fromstring(xml_text)
+    except (FritzConnectionException, requests.RequestException, KeyError, ET.ParseError):
+        return []
+    return [
+        ((node.text or "").strip(), node.attrib.get("last_user") == "1")
+        for node in root
+        if node.tag == "Username" and (node.text or "").strip()
+    ]
+
+
+def fetch_usernames(host: str, port: int | None = None, use_tls: bool = False) -> list[str]:
+    try:
+        fc = FritzConnection(address=host, port=port, timeout=8, use_tls=use_tls)
+    except (FritzConnectionException, requests.RequestException, OSError) as err:
+        raise BoxError(f"Keine Verbindung zu {host}: {err}") from err
+    users = usernames(fc)
+    # last logged-in user first
+    return [name for name, _ in sorted(users, key=lambda u: not u[1])]
+
+
 class FritzBox:
     def __init__(self, cfg: BoxConfig, verify_ssl: bool = False) -> None:
         self.cfg = cfg
@@ -69,6 +96,7 @@ class FritzBox:
         self._static: dict[str, Any] = {}
         self.last_error: str | None = None
         self.last_ok: float | None = None
+        self.resolved_user: str | None = cfg.username or None
 
     # ------------------------------------------------------------------ core
     @property
@@ -88,7 +116,31 @@ class FritzBox:
                 except (FritzConnectionException, requests.RequestException, OSError) as err:
                     raise BoxError(f"Keine Verbindung zu {self.cfg.host}: {err}") from err
                 self._services = set(self._fc.services)
+                if not self.cfg.username and self.cfg.password:
+                    self._apply_default_user(self._fc)
             return self._fc
+
+    def _apply_default_user(self, fc: FritzConnection) -> None:
+        """Pick the user name when none is configured.
+
+        Since FRITZ!OS 7.24 every login needs a user name. fritzconnection only
+        falls back to the *last logged-in* user – mesh clients often have a
+        single auto-generated user (``fritz1234``) that never logged in, so we
+        also accept the only existing user.
+        """
+        users = usernames(fc)
+        user = next((name for name, last in users if last), None)
+        if user is None and len(users) == 1:
+            user = users[0][0]
+        if user is None:
+            return
+        _LOGGER.debug("%s: using user name %s", self.cfg.host, user)
+        self.resolved_user = user
+        # same approach as fritzconnection's own FritzConnection._reset_user()
+        fc.session.auth = HTTPDigestAuth(user, self.cfg.password)
+        fc.soaper.user = user
+        fc.soaper.session = fc.session
+        fc.device_manager.session = fc.session
 
     def reset(self) -> None:
         with self._lock:
