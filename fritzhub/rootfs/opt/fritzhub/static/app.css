@@ -354,7 +354,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
 /* Chart */
-.chart { position: relative; }
+.chart { position: relative; min-height: 220px; } /* keeps page height stable while redrawing */
 .chart svg { display: block; width: 100%; height: 220px; }
 .chart .grid-line { stroke: var(--border); stroke-width: 1; }
 .chart .axis { fill: var(--text-3); font-size: 11px; font-family: var(--font); }

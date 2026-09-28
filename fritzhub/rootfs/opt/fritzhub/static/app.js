@@ -7,6 +7,14 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const nf = (v, d = 0) => Number(v).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d });
+  // Re-render without jumping: automatic refreshes replace the page content,
+  // which can briefly shorten the document and reset the scroll position.
+  function keepScroll(fn) {
+    const el = document.scrollingElement || document.documentElement;
+    const top = el.scrollTop;
+    fn();
+    if (el.scrollTop !== top) el.scrollTop = top;
+  }
   const store = {
     get(k, d) { try { const v = localStorage.getItem('fritzhub.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
     set(k, v) { try { localStorage.setItem('fritzhub.' + k, JSON.stringify(v)); } catch { /* ignore */ } },
@@ -437,9 +445,9 @@
     draw();
     // Host count for the KPI tile
     if (S.overview.hosts_online == null) {
-      api('hosts').then((h) => { S.hosts = h; S.overview.hosts_online = h.filter((x) => x.active).length; S.overview.hosts_total = h.length; draw(); }).catch(() => {});
+      api('hosts').then((h) => { S.hosts = h; S.overview.hosts_online = h.filter((x) => x.active).length; S.overview.hosts_total = h.length; keepScroll(draw); }).catch(() => {});
     }
-    const timer = setInterval(async () => { try { await loadOverview(); draw(); } catch { /* keep old */ } }, Math.max(5, S.overview.scan_interval) * 1000);
+    const timer = setInterval(async () => { try { await loadOverview(); keepScroll(draw); } catch { /* keep old */ } }, Math.max(5, S.overview.scan_interval) * 1000);
     const onResize = () => { const r = mainRouter(); if (r && $('#chart')) drawChart($('#chart'), r.history || []); };
     window.addEventListener('resize', onResize);
     S.cleanup.push(() => clearInterval(timer), () => window.removeEventListener('resize', onResize));
@@ -584,7 +592,7 @@
     };
     draw();
     $('#reloadBtn').addEventListener('click', (e) => withBusy(e.currentTarget, async () => { try { await load(true); draw(); } catch (err) { toast(err.message, 'err'); } }));
-    const timer = setInterval(async () => { if (document.activeElement && document.activeElement.id === 'q') return; try { await load(); draw(); } catch { /* ignore */ } }, 30000);
+    const timer = setInterval(async () => { if (document.activeElement && document.activeElement.id === 'q') return; try { await load(); keepScroll(draw); } catch { /* ignore */ } }, 30000);
     S.cleanup.push(() => clearInterval(timer));
   }
 

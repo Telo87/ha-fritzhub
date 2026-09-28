@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.6
+
+- Automatische Aktualisierung springt nicht mehr an den Seitenanfang zurück
+
 ## 1.0.5
 
 - FRITZ!NAS: Verzeichnisse werden per LIST gelesen, wenn der FTP-Server kein MLSD unterstützt (FRITZ!Box: „501 Feature MLST … not supported“)

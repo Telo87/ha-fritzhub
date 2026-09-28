@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.5-2563eb">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.6-2563eb">
   <img alt="Architekturen" src="https://img.shields.io/badge/arch-amd64%20%7C%20aarch64-0d9488">
   <img alt="Lizenz" src="https://img.shields.io/badge/license-MIT-64748b">
 </p>
