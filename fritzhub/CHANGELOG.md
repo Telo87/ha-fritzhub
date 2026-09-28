@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.1
+
+- FRITZ!NAS: Ordner mit Umlauten und Sonderzeichen im Namen führten zu einem Fehler – UTF-8 wird jetzt aktiviert, sonst wird automatisch auf Latin-1 umgestellt
+- Protokoll: doppelte Fehlermeldungen der Bibliothek bei nicht erreichbaren Boxen (z. B. während eines Neustarts) entfernt
+
 ## 1.5.0
 
 - Neu: Vorschau im FRITZ!NAS für Bilder, PDFs, Videos, Audio und Textdateien – mit Blättern per Pfeiltasten durch alle Dateien eines Ordners

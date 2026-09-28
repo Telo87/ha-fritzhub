@@ -105,9 +105,12 @@ class _FakeFtp:
     def cwd(self, path):
         self.cwd_path = path
 
-    def retrlines(self, cmd, callback):
+    listing = b"drwxr-xr-x 1 ftp ftp 0 Sep 28 12:00 Intenso USB\r\n"
+    encoding = "utf-8"
+
+    def retrbinary(self, cmd, callback):
         self.commands.append(cmd)
-        callback("drwxr-xr-x 1 ftp ftp 0 Sep 28 12:00 Intenso USB")
+        callback(self.listing)
 
 
 def test_nas_uses_list_when_mlsd_unsupported():
@@ -275,3 +278,15 @@ def test_stats_last_seen_and_persistence(tmp_path):
     again = Stats(path)
     assert again.seen("AA") == {"first": 100, "last": 200}
     assert again.seen("BB") is None
+
+
+def test_nas_latin1_listing_switches_encoding():
+    from fritzhub.config import BoxConfig
+    from fritzhub.nas import FritzNas
+
+    ftp = _FakeFtp()
+    ftp.listing = "-rw-r--r-- 1 ftp ftp 12 Sep 28 12:00 Rechnung März ´24.pdf\r\n".encode("latin-1")
+    nas = FritzNas(BoxConfig(host="x"))
+    entries = nas._listdir(ftp, "/")
+    assert entries[0]["name"] == "Rechnung März ´24.pdf"
+    assert ftp.encoding == "latin-1" and nas._encoding == "latin-1"

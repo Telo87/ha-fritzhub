@@ -40,6 +40,7 @@ class FritzNas:
         self.cfg = cfg
         self._tls_ok: bool | None = None  # remember whether FTPS works
         self._mlsd: bool | None = None  # remember whether MLSD is supported
+        self._encoding = "utf-8"  # file name encoding the server really uses
 
     def _connect(self) -> ftplib.FTP:
         errors = []
@@ -53,7 +54,7 @@ class FritzNas:
                     ftp: ftplib.FTP = ftplib.FTP_TLS(context=ctx, timeout=20)
                 else:
                     ftp = ftplib.FTP(timeout=20)
-                ftp.encoding = "utf-8"
+                ftp.encoding = self._encoding
                 ftp.connect(self.cfg.host, 21)
                 if tls:
                     ftp.auth()  # type: ignore[attr-defined]
@@ -61,6 +62,7 @@ class FritzNas:
                 if tls:
                     ftp.prot_p()  # type: ignore[attr-defined]
                 self._tls_ok = tls
+                self._negotiate_encoding(ftp)
                 return ftp
             except ftplib.error_perm as err:
                 errors.append(str(err))
@@ -101,6 +103,25 @@ class FritzNas:
 
         return self._run(op)
 
+    def _negotiate_encoding(self, ftp: ftplib.FTP) -> None:
+        """The FRITZ!Box announces UTF8 but uses Latin-1 until "OPTS UTF8 ON"."""
+        if self._encoding != "utf-8":
+            return
+        try:
+            ftp.sendcmd("OPTS UTF8 ON")
+        except ftplib.Error:
+            self._encoding = ftp.encoding = "latin-1"
+
+    def _decode_listing(self, ftp: ftplib.FTP, data: bytes) -> list[str]:
+        """Decode a LIST response; switch to Latin-1 if the server isn't really UTF-8."""
+        try:
+            text = data.decode(self._encoding)
+        except UnicodeDecodeError:
+            _LOGGER.info("FTP server sends Latin-1 file names – switching encoding")
+            self._encoding = ftp.encoding = "latin-1"
+            text = data.decode("latin-1")
+        return [line for line in text.splitlines() if line.strip()]
+
     def _has_mlsd(self, ftp: ftplib.FTP) -> bool:
         """MLSD only if the server announces MLST (the FRITZ!Box does not)."""
         if self._mlsd is None:
@@ -118,8 +139,9 @@ class FritzNas:
                 self._mlsd = False  # announced but not usable – fall back to LIST
         # CWD + plain LIST: path arguments of LIST break on names with spaces
         ftp.cwd(path)
-        lines: list[str] = []
-        ftp.retrlines("LIST", lines.append)
+        raw: list[bytes] = []
+        ftp.retrbinary("LIST", raw.append)
+        lines = self._decode_listing(ftp, b"".join(raw))
         entries = [e for e in (_parse_list_line(line) for line in lines) if e]
         if lines and not entries:
             _LOGGER.warning("Unbekanntes LIST-Format: %r", lines[:3])
