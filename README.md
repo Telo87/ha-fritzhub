@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-2563eb">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.1-2563eb">
   <img alt="Architekturen" src="https://img.shields.io/badge/arch-amd64%20%7C%20aarch64-0d9488">
   <img alt="Lizenz" src="https://img.shields.io/badge/license-MIT-64748b">
 </p>
@@ -62,7 +62,7 @@ Dazu: helles & dunkles Design, responsiv bis aufs Smartphone, keine externen Abh
 
 | Einstellung | Wo in der FRITZ!Box |
 |---|---|
-| **TR-064 aktivieren** | Heimnetz › Netzwerk › Netzwerkeinstellungen › *Zugriff für Anwendungen zulassen* |
+| **TR-064 aktivieren** | Heimnetz › Netzwerk › Netzwerkeinstellungen › *Zugriff für Apps erlauben* (ältere FRITZ!OS: *Zugriff für Anwendungen zulassen*) |
 | **Eigenen Benutzer anlegen** (empfohlen) | System › FRITZ!Box-Benutzer › *Benutzer hinzufügen* |
 | **Rechte des Benutzers** | *FRITZ!Box Einstellungen*, *Sprachnachrichten, Faxnachrichten, FRITZ!App Fon und Anrufliste*, *Zugang zu NAS-Inhalten* |
 | **FTP für FRITZ!NAS** (optional) | Heimnetz › Speicher (NAS) › *Heimnetzfreigabe* › *Zugriff über FTP aktiviert* |

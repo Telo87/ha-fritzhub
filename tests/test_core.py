@@ -110,7 +110,19 @@ def test_parse_desc_only_accepts_avm():
     assert _parse_desc(xml) == {
         "name": "FRITZ!Box 7590", "model": "FRITZ!Box 7590", "manufacturer": "AVM", "firmware": "7.57",
     }
-    assert _parse_desc(xml.replace("AVM", "Other")) is None
+    assert _parse_desc(xml.replace("AVM", "Other").replace("FRITZ!Box 7590", "Router")) is None
+
+
+def test_parse_desc_new_vendor_name():
+    # AVM was renamed to "FRITZ! GmbH"; firmware display is hw.major.minor-build
+    xml = (
+        '<root xmlns="urn:dslforum-org:device-1-0"><systemVersion><Display>272.08.40-136743</Display>'
+        "</systemVersion><device><friendlyName>FritzBox-Buero</friendlyName>"
+        "<manufacturer>FRITZ! GmbH</manufacturer><modelName>FRITZ!Box 5590 Fiber</modelName></device></root>"
+    )
+    result = _parse_desc(xml)
+    assert result["model"] == "FRITZ!Box 5590 Fiber"
+    assert result["firmware"] == "8.40"
 
 
 def test_box_store_keeps_password_on_edit(tmp_path):

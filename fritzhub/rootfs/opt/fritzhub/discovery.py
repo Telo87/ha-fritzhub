@@ -131,14 +131,39 @@ def _parse_desc(xml_text: str) -> dict[str, Any] | None:
         return None
 
     manufacturer = find("manufacturer") or ""
-    if "avm" not in manufacturer.lower():
+    model = find("modelName") or ""
+    # AVM was renamed to "FRITZ! GmbH" in 2025 – accept both
+    if not any(key in f"{manufacturer} {model}".lower() for key in ("avm", "fritz")):
         return None
     return {
         "name": find("friendlyName"),
-        "model": find("modelName"),
+        "model": model or None,
         "manufacturer": manufacturer,
-        "firmware": find("Display"),
+        "firmware": _firmware(find("Display")),
     }
+
+
+def _firmware(display: str | None) -> str | None:
+    """``272.08.40-136743`` (hardware.major.minor-build) -> ``8.40``."""
+    if not display:
+        return None
+    parts = display.split("-")[0].split(".")
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        return f"{int(parts[1])}.{parts[2]}"
+    return display
+
+
+def _default_gateway() -> str | None:
+    """IPv4 default gateway from /proc/net/route (Linux only)."""
+    try:
+        with open("/proc/net/route", encoding="ascii") as routes:
+            for line in routes.readlines()[1:]:
+                fields = line.split()
+                if len(fields) > 2 and fields[1] == "00000000":
+                    return socket.inet_ntoa(bytes.fromhex(fields[2])[::-1])
+    except (OSError, ValueError):
+        pass
+    return None
 
 
 async def _probe(session: aiohttp.ClientSession, host: str) -> dict[str, Any] | None:
@@ -167,15 +192,24 @@ async def discover(scan_subnet: bool = True) -> list[dict[str, Any]]:
             candidates |= result
         else:
             _LOGGER.warning("Discovery step failed: %s", result)
-    # Default hostname of every FRITZ!Box
+    # Default hostname of every FRITZ!Box and the default gateway
     try:
         candidates.add(socket.gethostbyname("fritz.box"))
     except OSError:
         pass
+    gateway = _default_gateway()
+    if gateway:
+        candidates.add(gateway)
 
     async with aiohttp.ClientSession() as session:
         results = await asyncio.gather(*(_probe(session, ip) for ip in candidates))
     devices = {d["host"]: d for d in results if d}
+    _LOGGER.info(
+        "Discovery: %d candidate(s) with TR-064 port, %d FRITZ! device(s): %s",
+        len(candidates),
+        len(devices),
+        ", ".join(sorted(devices)) or "-",
+    )
     return sorted(
         devices.values(), key=lambda d: tuple(int(p) for p in d["host"].split("."))
     )

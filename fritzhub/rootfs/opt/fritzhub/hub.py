@@ -168,11 +168,32 @@ class Hub:
                     (int(now), wan.get("rate_down") or 0, wan.get("rate_up") or 0)
                 )
 
+        self._demote_mesh_boxes()
+
         if now - self._last_phone_poll > PHONE_POLL:
             self._last_phone_poll = now
             await self._poll_phone()
         if self.options.publish_sensors and self.publisher.available:
             await self._publish()
+
+    def _demote_mesh_boxes(self) -> None:
+        """FRITZ!Boxes used as mesh repeaters (IP client) still expose WAN services.
+
+        If another box has a working internet connection, treat boxes without
+        one as repeaters so they don't show up as disconnected routers.
+        """
+        states = [s for s in self.state.values() if s.get("online") and s.get("info")]
+        if not any((s.get("wan") or {}).get("connected") for s in states):
+            return
+        for st in states:
+            wan = st.get("wan")
+            if wan is not None and not wan.get("connected"):
+                st["wan"] = None
+                st["info"] = {
+                    **st["info"],
+                    "is_router": False,
+                    "services": {**st["info"]["services"], "wan": False},
+                }
 
     async def _poll_phone(self) -> None:
         for box in self.boxes_with("phone"):

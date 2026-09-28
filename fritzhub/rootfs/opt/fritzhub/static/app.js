@@ -1204,10 +1204,10 @@
           <button class="icon-btn danger" data-del="${b.config.id}" title="Entfernen">${ic('trash')}</button></div>`).join('');
       const disc = discovered ? `<div class="card"><div class="card-head"><h2>Gefundene Geräte <span class="sub">${discovered.length}</span></h2></div><div class="card-body flush"><div class="list">
         ${discovered.map((d) => `<div class="list-item"><div class="avatar ${d.configured ? 'ok' : 'accent'}">${ic(/repeater|powerline/i.test(d.model || '') ? 'repeater' : 'router')}</div>
-          <div class="grow"><div class="title">${esc(d.model || d.name || 'AVM-Gerät')}</div><div class="meta">${esc(d.host)}${d.firmware ? ` · FRITZ!OS ${esc(d.firmware)}` : ''}${d.name && d.name !== d.model ? ` · ${esc(d.name)}` : ''}</div></div>
-          ${d.configured ? '<span class="badge ok">Eingerichtet</span>' : `<button class="btn sm primary" data-adddisc="${esc(d.host)}">${ic('plus')}Hinzufügen</button>`}</div>`).join('') || `<div style="padding:10px 18px 16px" class="muted">Keine AVM-Geräte gefunden. Prüfe, ob „Heimnetz › Netzwerk › Netzwerkeinstellungen › Zugriff für Anwendungen zulassen (TR-064)“ aktiviert ist, und füge die Box ggf. manuell hinzu.</div>`}
+          <div class="grow"><div class="title">${esc(d.model || d.name || 'FRITZ!-Gerät')}</div><div class="meta">${esc(d.host)}${d.firmware ? ` · FRITZ!OS ${esc(d.firmware)}` : ''}${d.name && d.name !== d.model ? ` · ${esc(d.name)}` : ''}</div></div>
+          ${d.configured ? '<span class="badge ok">Eingerichtet</span>' : `<button class="btn sm primary" data-adddisc="${esc(d.host)}">${ic('plus')}Hinzufügen</button>`}</div>`).join('') || `<div style="padding:10px 18px 16px" class="muted">Keine FRITZ!-Geräte gefunden. Prüfe, ob „Heimnetz › Netzwerk › Netzwerkeinstellungen › Zugriff für Apps erlauben (TR-064; ältere FRITZ!OS: „Zugriff für Anwendungen zulassen“)“ aktiviert ist, und füge die Box ggf. manuell hinzu.</div>`}
         </div></div></div>` : '';
-      el.innerHTML = `<div class="notice info" style="margin-bottom:16px">${ic('info')}<div><b>Mesh mit mehreren Geräten:</b> Füge die FRITZ!Box (Mesh Master) und jeden Repeater einzeln hinzu – jedes Gerät hat eigene Zugangsdaten. Repeater im Mesh verwenden meist dasselbe Kennwort wie die FRITZ!Box; nutze dafür „Zugangsdaten übernehmen“. In der FRITZ!Box muss <b>TR-064</b> („Zugriff für Anwendungen zulassen“) aktiv sein.</div></div>
+      el.innerHTML = `<div class="notice info" style="margin-bottom:16px">${ic('info')}<div><b>Mesh mit mehreren Geräten:</b> Füge die FRITZ!Box (Mesh Master) und jeden Repeater einzeln hinzu – jedes Gerät hat eigene Zugangsdaten. Repeater im Mesh verwenden meist dasselbe Kennwort wie die FRITZ!Box; nutze dafür „Zugangsdaten übernehmen“. In der FRITZ!Box muss <b>TR-064</b> („Zugriff für Apps erlauben“, bei älterem FRITZ!OS „Zugriff für Anwendungen zulassen“) aktiv sein.</div></div>
         <div class="grid cols-2"><div class="card"><div class="card-head"><h2>Eingerichtete Geräte <span class="sub">${list.length}</span></h2></div>
           <div class="card-body flush"><div class="list">${cfgRows || `<div style="padding:10px 18px 16px" class="muted">Noch keine Geräte eingerichtet.</div>`}</div></div></div>
           ${disc || `<div class="card">${empty('radar', 'Automatische Suche', 'FritzHub sucht per UPnP/SSDP und Subnetz-Scan nach FRITZ!Boxen und Repeatern im Heimnetz.', `<button class="btn primary" id="scanBtn2">${ic('radar')}Jetzt suchen</button>`)}</div>`}</div>`;
@@ -1224,7 +1224,7 @@
       const s2 = $('#scanBtn2'); if (s2) s2.addEventListener('click', () => scan(s2));
     };
     const scan = (btn) => withBusy(btn, async () => {
-      try { discovered = await api('discover', { method: 'POST' }); draw(); toast(`${discovered.length} AVM-Gerät(e) gefunden.`, 'info'); } catch (e) { toast(e.message, 'err'); }
+      try { discovered = await api('discover', { method: 'POST' }); draw(); toast(`${discovered.length} FRITZ!-Gerät(e) gefunden.`, 'info'); } catch (e) { toast(e.message, 'err'); }
     });
 
     function boxForm(cfg = {}) {

@@ -15,7 +15,8 @@ Geräte, die nicht gefunden werden, können über **Manuell hinzufügen** mit IP
 
 ### TR-064 aktivieren
 
-*Heimnetz › Netzwerk › Netzwerkeinstellungen › Heimnetzfreigaben › Zugriff für Anwendungen zulassen*
+*Heimnetz › Netzwerk › Netzwerkeinstellungen › Zugriff für Apps erlauben*
+(bei älterem FRITZ!OS: *Zugriff für Anwendungen zulassen*)
 
 Ohne diese Option ist keine Kommunikation möglich. Bei FRITZ!Repeatern ist TR-064 in der Regel
 immer aktiv.
