@@ -34,8 +34,12 @@
     if (a.nodeType !== 1) { if (a.nodeValue !== b.nodeValue) a.nodeValue = b.nodeValue; return; }
     if (a.hasAttribute('data-keep') && b.hasAttribute('data-keep')) return;
     const changed = a.hasAttribute('data-flash') && b.hasAttribute('data-flash') && a.getAttribute('data-flash') !== b.getAttribute('data-flash');
-    Array.from(a.attributes).forEach((at) => { if (!b.hasAttribute(at.name)) a.removeAttribute(at.name); });
-    Array.from(b.attributes).forEach((at) => { if (a.getAttribute(at.name) !== at.value) a.setAttribute(at.name, at.value); });
+    // while the page fades in, keep the stagger delay (style="--i") – removing it
+    // would restart the running animation and make the element jump
+    const keepI = a.style && a.closest('.page-in') ? a.style.getPropertyValue('--i') : '';
+    Array.from(a.attributes).forEach((at) => { if (!b.hasAttribute(at.name) && !(at.name === 'style' && keepI)) a.removeAttribute(at.name); });
+    Array.from(b.attributes).forEach((at) => { if (a.getAttribute(at.name) !== at.value && !(at.name === 'style' && keepI)) a.setAttribute(at.name, at.value); });
+    if (keepI && b.hasAttribute('style')) { a.setAttribute('style', b.getAttribute('style')); a.style.setProperty('--i', keepI); }
     if (a.tagName === 'INPUT') {
       if (a.type === 'checkbox' || a.type === 'radio') a.checked = b.hasAttribute('checked');
       else if (a !== document.activeElement && a.value !== (b.getAttribute('value') || '')) a.value = b.getAttribute('value') || '';
@@ -528,10 +532,10 @@
     const skel = content.children.length === 1 && content.querySelector(':scope > .card > .card-body > .skeleton');
     content.classList.remove('page-in');
     void content.offsetWidth;
-    $$(STAGGER, content).slice(0, 30).forEach((n, i) => n.style.setProperty('--i', i));
+    $$(STAGGER, content).slice(0, 20).forEach((n, i) => n.style.setProperty('--i', i));
     content.classList.add('page-in');
     clearTimeout(pageAnimT);
-    pageAnimT = setTimeout(() => content.classList.remove('page-in'), 1100);
+    pageAnimT = setTimeout(() => content.classList.remove('page-in'), 1500);
     return !skel;
   }
   function watchPageIn() {

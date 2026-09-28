@@ -610,12 +610,12 @@ svg.i.flip { transform: scaleX(-1); }
 @keyframes pageIn { from { opacity: 0; transform: translateY(8px); } }
 @keyframes itemIn { from { opacity: 0; transform: translateY(5px); } }
 @keyframes rowIn { from { opacity: 0; } }
-.content.page-in > * { animation: pageIn .28s cubic-bezier(.2, .7, .2, 1) both; }
+.content.page-in > * { animation: pageIn .28s cubic-bezier(.2, .7, .2, 1) backwards; }
 .content.page-in > *:nth-child(2) { animation-delay: .04s; }
 .content.page-in > *:nth-child(3) { animation-delay: .08s; }
 .content.page-in > *:nth-child(n+4) { animation-delay: .12s; }
-.content.page-in :is(.grid > .card, .list > .list-item, .nc-item, .box-card) { animation: itemIn .3s cubic-bezier(.2, .7, .2, 1) both; animation-delay: calc(var(--i, 0) * 28ms + 60ms); }
-.content.page-in tbody > tr { animation: rowIn .3s ease both; animation-delay: calc(var(--i, 0) * 18ms + 60ms); }
+.content.page-in :is(.grid > .card, .list > .list-item, .nc-item, .box-card) { animation: itemIn .3s cubic-bezier(.2, .7, .2, 1) backwards; animation-delay: calc(var(--i, 0) * 28ms + 60ms); }
+.content.page-in tbody > tr { animation: rowIn .3s ease backwards; animation-delay: calc(var(--i, 0) * 18ms + 60ms); }
 
 /* cards lift on hover */
 .kpi, .box-card { transition: transform .2s cubic-bezier(.2, .7, .2, 1), box-shadow .2s, border-color .2s; }
@@ -640,8 +640,8 @@ svg.i.flip { transform: scaleX(-1); }
 /* bars grow in */
 @keyframes growY { from { transform: scaleY(0); } }
 @keyframes wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
-.vol-bars.grow .stack { transform-origin: bottom; animation: growY .55s cubic-bezier(.2, .7, .2, 1) both; animation-delay: calc(var(--i, 0) * 14ms); }
-.content.page-in .sig i.on { transform-origin: bottom; animation: growY .35s .15s cubic-bezier(.2, .7, .2, 1) both; }
+.vol-bars.grow .stack { transform-origin: bottom; animation: growY .55s cubic-bezier(.2, .7, .2, 1) backwards; animation-delay: calc(var(--i, 0) * 14ms); }
+.content.page-in .sig i.on { transform-origin: bottom; animation: growY .35s .15s cubic-bezier(.2, .7, .2, 1) backwards; }
 .content.page-in .sig i.on:nth-child(2) { animation-delay: .2s; }
 .content.page-in .sig i.on:nth-child(3) { animation-delay: .25s; }
 .content.page-in .sig i.on:nth-child(4) { animation-delay: .3s; }
