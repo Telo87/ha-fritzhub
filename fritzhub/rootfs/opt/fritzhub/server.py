@@ -222,15 +222,6 @@ async def topology(request: web.Request) -> web.Response:
     return _ok(await _hub(request).topology(force))
 
 
-@routes.post("/api/hosts/wol")
-async def host_wol(request: web.Request) -> web.Response:
-    hub = _hub(request)
-    data = await _json(request)
-    box = hub.box(data.get("box") or (hub.routers() or hub.active_boxes())[0].cfg.id)
-    await hub.run(box.wake_on_lan, data["mac"])
-    return _ok()
-
-
 @routes.get("/api/webscan")
 async def webscan_status(request: web.Request) -> web.Response:
     hub = _hub(request)

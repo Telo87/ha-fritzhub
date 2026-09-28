@@ -4,7 +4,7 @@ Dashboard für FRITZ!Box, FRITZ!Repeater und das ganze Mesh-Netz.
 
 - Übersicht mit Internetstatus, Live-Durchsatz und DSL-Werten
 - Interaktive Mesh-Topologie
-- Geräteliste mit Internet-Sperre und Wake on LAN
+- Geräteliste mit Internet-Sperre, Hersteller, Signalstärke und Weboberflächen
 - WLAN steuern inkl. QR-Code fürs Gastnetz
 - Anrufliste und Rufumleitungen
 - Anrufbeantworter im Browser abhören

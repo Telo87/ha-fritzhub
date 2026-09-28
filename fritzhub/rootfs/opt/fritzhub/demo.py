@@ -229,9 +229,6 @@ class DemoBox(FritzBox):
     def set_wan_access(self, ip: str, blocked: bool) -> None:
         (self._blocked.add if blocked else self._blocked.discard)(ip)
 
-    def wake_on_lan(self, mac: str) -> None:
-        return None
-
     def mesh(self) -> dict[str, Any]:
         if not self.router:
             raise BoxError("Nur der Mesh Master liefert die Topologie.")

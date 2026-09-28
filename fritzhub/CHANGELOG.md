@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.3
+
+- Wake on LAN entfernt
+
 ## 1.7.2
 
 - „Boxen & Zugänge“ ist jetzt ein Reiter unter „Einstellungen“ (neben „Benachrichtigungen“); alte Links führen automatisch dorthin

@@ -721,7 +721,7 @@
             : h.last_seen ? `<span class="${isStale(h) ? 'stale' : ''}">${fmtAgo(h.last_seen)}</span>`
               : `<span class="faint" title="FritzHub zeichnet seit ${fmtDateTime(S.overview.tracking_since)} auf">vor ${new Date(S.overview.tracking_since * 1000).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}</span>`}</td>
           <td class="nowrap">${canBlock ? `<label class="row" style="gap:8px" title="Internetzugang erlauben">${sw(!h.wan_blocked, `data-wan="${esc(h.ip)}"`)}</label>` : '<span class="faint">–</span>'}</td>
-          <td class="sticky-end"><div class="actions">${h.mac ? `<button class="icon-btn" title="Umbenennen" data-rename-host="${esc(h.mac)}">${ic('edit')}</button><button class="icon-btn" title="Wake on LAN" data-wol="${esc(h.mac)}">${ic('power')}</button>` : ''}</div></td>
+          <td class="sticky-end"><div class="actions">${h.mac ? `<button class="icon-btn" title="Umbenennen" data-rename-host="${esc(h.mac)}">${ic('edit')}</button>` : ''}</div></td>
         </tr>`;
       }).join('');
       el.innerHTML = `<div class="toolbar">
@@ -760,9 +760,6 @@
           },
         });
       }));
-      $$('[data-wol]').forEach((b) => b.addEventListener('click', () => withBusy(b, async () => {
-        try { await api('hosts/wol', { method: 'POST', body: { mac: b.dataset.wol } }); toast('Weckruf (Wake on LAN) gesendet.'); } catch (e) { toast(e.message, 'err'); }
-      })));
       $$('[data-wan]').forEach((c) => c.addEventListener('change', async () => {
         const allow = c.checked; const ip = c.dataset.wan;
         if (!allow && !(await confirmDialog('Internetzugang sperren?', `Das Gerät <b>${esc(ip)}</b> kann danach nicht mehr ins Internet. Das Heimnetz bleibt erreichbar.`, { ok: 'Sperren', danger: true }))) { c.checked = true; return; }

@@ -483,9 +483,6 @@ class FritzBox:
         self.try_call("Hosts1", "X_AVM-DE_SetFriendlyNameByMAC", NewMACAddress=mac,
                       **{"NewX_AVM-DE_FriendlyName": name})
 
-    def wake_on_lan(self, mac: str) -> None:
-        self.call("Hosts1", "X_AVM-DE_WakeOnLANByMACAddress", NewMACAddress=mac)
-
     def set_wan_access(self, ip: str, blocked: bool) -> None:
         self.call(
             "X_AVM-DE_HostFilter1",
