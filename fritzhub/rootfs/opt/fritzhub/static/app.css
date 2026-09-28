@@ -137,7 +137,9 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .nav a:hover { background: var(--surface-3); color: var(--text); }
 .nav a.active { background: var(--accent-soft); color: var(--accent); }
 .nav .badge { margin-left: auto; }
-.sidebar-foot { padding: 12px; border-top: 1px solid var(--border); }
+.sidebar-foot { padding: 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
+a.theme-toggle { text-decoration: none; }
+#starLink:hover svg { color: #eab308; fill: #eab308; }
 .theme-toggle {
   width: 100%; display: flex; align-items: center; gap: 10px;
   background: none; border: 0; padding: 8px 10px; border-radius: var(--radius-sm);

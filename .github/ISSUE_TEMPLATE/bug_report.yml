@@ -1,0 +1,54 @@
+name: 🐞 Fehler melden
+description: Etwas funktioniert nicht wie erwartet
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für die Rückmeldung! Je genauer die Angaben, desto schneller lässt sich der Fehler finden.
+        Bitte keine Kennwörter, IP-Adressen von außen oder andere persönliche Daten eintragen.
+  - type: textarea
+    id: description
+    attributes:
+      label: Was ist passiert?
+      description: Was hast du gemacht, was hast du erwartet und was ist stattdessen passiert?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: FritzHub-Version
+      description: Steht in FritzHub oben links unter dem Namen (z. B. v1.9.0).
+      placeholder: v1.9.0
+    validations:
+      required: true
+  - type: textarea
+    id: devices
+    attributes:
+      label: FRITZ!-Geräte und FRITZ!OS
+      description: Welche Boxen und Repeater sind eingerichtet (Modell, FRITZ!OS-Version, Mesh Master / Repeater, per LAN oder WLAN angebunden)?
+      placeholder: |
+        FRITZ!Box 5590 Fiber, FRITZ!OS 8.40, Mesh Master
+        FRITZ!Repeater 1700, FRITZ!OS 8.24, per LAN
+  - type: dropdown
+    id: area
+    attributes:
+      label: Bereich
+      options:
+        - Übersicht
+        - Geräte
+        - Mesh-Topologie
+        - WLAN
+        - Netzwerk-Check
+        - Anrufe
+        - Anrufbeantworter
+        - FRITZ!NAS
+        - System
+        - Einstellungen / Einrichtung
+        - Anderes
+  - type: textarea
+    id: log
+    attributes:
+      label: Protokoll
+      description: In Home Assistant unter Einstellungen › Add-ons › FritzHub › Protokoll – die Zeilen rund um den Fehler.
+      render: text
