@@ -1614,6 +1614,7 @@
         </dl>
         <div class="row wrap" style="gap:8px;margin-top:14px">
           <button class="btn sm ${h.watched ? 'primary' : ''}" id="ddWatch">${ic('bell')}${h.watched ? 'Wird beobachtet' : 'Beobachten'}</button>
+          <button class="btn sm" id="ddUptime">${ic('clock')}Online-Zeit auswerten</button>
           ${(h.web || []).map((w) => `<a class="btn sm" href="${esc(w.url)}" target="_blank" rel="noopener noreferrer">${ic('globe')}Weboberfläche</a>`).join('')}
         </div></div>
         <div>
@@ -1630,7 +1631,8 @@
         const [text, icon, cls] = eventText(e);
         return `<div class="list-item" style="padding:8px 14px"><div class="avatar ${cls}" style="width:28px;height:28px">${ic(icon)}</div><div class="grow" style="font-size:13px">${text}</div><span class="faint nowrap" style="font-size:12px" title="${fmtDateTime(e[0])}">${fmtAgo(e[0])}</span></div>`;
       }).join('') || '<div class="muted" style="padding:12px 14px;font-size:13px">Noch keine Ereignisse aufgezeichnet – FritzHub protokolliert ab jetzt jeden Wechsel.</div>'}</div></div>`,
-      onMount(m) {
+      onMount(m, close) {
+        m.querySelector('#ddUptime').addEventListener('click', () => { close(); openUptime(h); });
         m.querySelector('#ddWatch').addEventListener('click', (e) => withBusy(e.currentTarget, async () => {
           try {
             await setWatched(h, !h.watched);
@@ -1643,6 +1645,140 @@
         }));
       },
     });
+  }
+
+  // Online time over a freely chosen period, with hours per day ----------------
+  const UPTIME_DAYS = 400; // matches the retention in devicelog.py
+  const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const parseDay = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+  const fmtH = (sec, d = 1) => `${nf(sec / 3600, d)} h`;
+  const overlap = (list, a, b) => list.reduce((n, [s, e]) => n + Math.max(0, Math.min(e, b) - Math.max(s, a)), 0);
+
+  function uptimeRange(preset) {
+    const today = dayStart(new Date());
+    const add = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+    if (preset === '30d') return [add(today, -29), today];
+    if (preset === 'month') return [new Date(today.getFullYear(), today.getMonth(), 1), today];
+    if (preset === 'lastmonth') return [new Date(today.getFullYear(), today.getMonth() - 1, 1), new Date(today.getFullYear(), today.getMonth(), 0)];
+    return [add(today, -6), today];
+  }
+
+  function openUptime(h) {
+    const name = h.name || h.mac;
+    let preset = store.get('uptimePreset', '7d');
+    let [from, to] = preset === 'custom' ? uptimeRange('7d') : uptimeRange(preset);
+    let rows = [];
+    const minDay = isoDay(new Date(Date.now() - (UPTIME_DAYS - 1) * 86400000));
+    const presets = [['7d', '7 Tage'], ['30d', '30 Tage'], ['month', 'Dieser Monat'], ['lastmonth', 'Letzter Monat'], ['custom', 'Zeitraum']];
+    modal({
+      title: `Online-Zeit – ${name}`,
+      wide: true,
+      cls: 'uptime-modal',
+      body: `<div class="toolbar" style="margin-bottom:12px">
+          <div class="seg" id="upPreset">${presets.map(([k, l]) => `<button data-p="${k}">${l}</button>`).join('')}</div>
+          <div class="row" style="gap:6px"><input class="input" type="date" id="upFrom" min="${minDay}" style="width:auto"><span class="faint">bis</span><input class="input" type="date" id="upTo" min="${minDay}" style="width:auto"></div>
+        </div>
+        <div id="upBody"><div class="skeleton" style="height:260px"></div></div>`,
+      foot: '<button class="btn left" id="upCsv">' + ic('download') + 'CSV exportieren</button><button class="btn primary" data-close>Schließen</button>',
+      onMount(m) {
+        const fi = m.querySelector('#upFrom'); const ti = m.querySelector('#upTo');
+        const today = isoDay(new Date());
+        fi.max = today; ti.max = today;
+        const sync = () => {
+          fi.value = isoDay(from); ti.value = isoDay(to);
+          $$('#upPreset button', m).forEach((b) => b.classList.toggle('active', b.dataset.p === preset));
+        };
+        let seq = 0;
+        const load = async () => {
+          sync();
+          const my = ++seq;
+          const a = from.getTime() / 1000;
+          const b = new Date(to.getFullYear(), to.getMonth(), to.getDate() + 1).getTime() / 1000;
+          let data;
+          try { data = await api(`devices/${encodeURIComponent(h.mac)}/uptime?from=${a}&to=${b}`); } catch (e) { m.querySelector('#upBody').innerHTML = errorBox(e.message); return; }
+          if (my !== seq) return;
+          rows = [];
+          for (let d = new Date(from); d <= to; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+            const s = d.getTime() / 1000; const e = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime() / 1000;
+            rows.push({ day: new Date(d), len: e - s, on: overlap(data.online, s, e), known: overlap(data.known, s, e) });
+          }
+          m.querySelector('#upBody').innerHTML = uptimeHTML(rows, data);
+        };
+        $$('#upPreset button', m).forEach((btn) => btn.addEventListener('click', () => {
+          preset = btn.dataset.p;
+          if (preset === 'custom') { sync(); fi.focus(); if (fi.showPicker) try { fi.showPicker(); } catch { /* ignore */ } return; }
+          store.set('uptimePreset', preset);
+          [from, to] = uptimeRange(preset);
+          load();
+        }));
+        const onDate = () => {
+          if (!fi.value || !ti.value) return;
+          let a = parseDay(fi.value); let b = parseDay(ti.value);
+          if (a > b) [a, b] = [b, a];
+          const min = parseDay(minDay); const max = dayStart(new Date());
+          from = a < min ? min : a; to = b > max ? max : b;
+          preset = 'custom';
+          load();
+        };
+        fi.addEventListener('change', onDate); ti.addEventListener('change', onDate);
+        m.querySelector('#upCsv').addEventListener('click', () => {
+          if (!rows.length) return;
+          const n = (v, d) => (v).toFixed(d).replace('.', ',');
+          const lines = ['Datum;Online (h);Aufgezeichnet (h);Verfügbarkeit (%)'].concat(rows.map((r) => [
+            r.day.toLocaleDateString('de-DE'), n(r.on / 3600, 2), n(r.known / 3600, 2), r.known ? n((r.on / r.known) * 100, 1) : '',
+          ].join(';')));
+          const blob = new Blob([`﻿${lines.join('\r\n')}\r\n`], { type: 'text/csv;charset=utf-8' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `online-zeit_${name.replace(/[^\w.-]+/g, '_')}_${isoDay(from)}_${isoDay(to)}.csv`;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        });
+        load();
+      },
+    });
+  }
+
+  function uptimeHTML(rows, data) {
+    const on = rows.reduce((n, r) => n + r.on, 0);
+    const known = rows.reduce((n, r) => n + r.known, 0);
+    const fullDays = rows.filter((r) => r.known > 0);
+    const periods = data.online.length;
+    const longest = data.online.reduce((n, [s, e]) => Math.max(n, e - s), 0);
+    const tile = (l, v, s = '') => `<div class="vol-tile"><div class="l">${l}</div><div class="v">${v}</div><div class="s faint">${s}</div></div>`;
+    if (!known) {
+      return `<div class="empty" style="padding:40px 0">${ic('clock')}<h3>Keine Aufzeichnung in diesem Zeitraum</h3>
+        <p>FritzHub zeichnet Online-Zeiten auf, solange es läuft${data.first ? ` – für dieses Gerät seit ${fmtDateTime(data.first)}` : ''}.</p></div>`;
+    }
+    const many = rows.length > 45;
+    const bars = rows.map((r, i) => {
+      const label = r.day.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
+      const tip = r.known ? `${label}: ${fmtH(r.on)} online${r.known < r.len - 60 ? ` (aufgezeichnet ${fmtH(r.known)})` : ''}` : `${label}: nicht aufgezeichnet`;
+      const showLabel = !many ? (rows.length <= 14 || r.day.getDay() === 1 || i === 0) : r.day.getDate() === 1 || i === 0;
+      return `<div class="ub ${r.day.getDay() % 6 === 0 ? 'we' : ''}" title="${esc(tip)}" style="--i:${i}">
+          <div class="col"><i class="unk" style="height:${((r.len - r.known) / r.len) * 100}%"></i><i class="off" style="height:${((r.known - r.on) / r.len) * 100}%"></i><i class="on" style="height:${(r.on / r.len) * 100}%"></i></div>
+          <span class="lbl">${showLabel ? r.day.toLocaleDateString('de-DE', rows.length <= 14 ? { weekday: 'short', day: '2-digit' } : { day: '2-digit', month: '2-digit' }) : ''}</span></div>`;
+    }).join('');
+    const table = [...rows].reverse().map((r) => `<tr>
+        <td class="nowrap">${r.day.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
+        <td class="num">${r.known ? fmtH(r.on) : '<span class="faint">–</span>'}</td>
+        <td style="width:40%">${r.known ? `<div class="bar"><i style="width:${(r.on / r.len) * 100}%;background:var(--ok)"></i></div>` : ''}</td>
+        <td class="num nowrap">${r.known ? `${nf((r.on / r.known) * 100, 0)} %` : ''}${r.known && r.known < r.len - 60 ? ` <span class="faint" title="Nur ${fmtH(r.known)} aufgezeichnet">*</span>` : ''}</td></tr>`).join('');
+    const partial = rows.some((r) => r.known && r.known < r.len - 60) || rows.some((r) => !r.known);
+    return `<div class="vol-tiles" style="grid-template-columns:repeat(4, minmax(0, 1fr))">
+        ${tile('Online gesamt', fmtH(on), `${nf(on / 86400, 1)} Tage`)}
+        ${tile('Verfügbarkeit', `${nf((on / known) * 100, 1)} %`, `von ${fmtH(known, 0)} erfasst`)}
+        ${tile('Ø pro Tag', fmtH(on / Math.max(1, fullDays.length)), `${fullDays.length} ${fullDays.length === 1 ? 'Tag' : 'Tage'}`)}
+        ${tile('Online-Phasen', String(periods), longest ? `längste ${fmtH(longest)}` : '')}
+      </div>
+      <div class="up-chart">
+        <div class="up-axis"><span>24 h</span><span>18 h</span><span>12 h</span><span>6 h</span><span>0 h</span></div>
+        <div class="up-bars ${many ? 'many' : ''}">${bars}</div>
+      </div>
+      <div class="legend" style="margin:6px 0 14px;flex-wrap:wrap"><span><i style="background:var(--ok)"></i>online</span><span><i style="background:var(--surface-3);border:1px solid var(--border)"></i>offline</span><span><i class="unk-sw"></i>nicht aufgezeichnet</span></div>
+      <div class="card" style="max-height:280px;overflow:auto"><table class="table"><thead><tr><th style="cursor:default">Tag</th><th style="cursor:default">Online</th><th style="cursor:default"></th><th style="cursor:default">Verfügbarkeit</th></tr></thead><tbody>${table}</tbody></table></div>
+      ${partial ? '<p class="faint" style="font-size:12px;margin:10px 0 0">* Nicht durchgehend aufgezeichnet (Home Assistant bzw. FritzHub lief nicht, oder das Gerät war noch nicht bekannt) – die Verfügbarkeit bezieht sich auf die aufgezeichnete Zeit.</p>' : ''}`;
   }
 
   // Network check ------------------------------------------------------------

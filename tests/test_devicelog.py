@@ -113,3 +113,36 @@ def test_unwatched_device_is_ignored(tmp_path):
     hub = _hub(tmp_path)
     hub.settings.update({"watched_devices": []})
     assert _run_watch(hub, [(0, [(MAC, "off")]), (400, [])]) == []
+
+
+def test_uptime_periods(tmp_path):
+    log = DeviceLog(tmp_path / "devices.json")
+    host = {"mac": "AA:BB:CC:00:00:01", "active": True}
+    t0 = 1_000_000
+    # FritzHub runs from t0 to t0+1000 (polls every 10 s), device goes offline at 400, back at 700
+    for t in range(t0, t0 + 1001, 10):
+        host["active"] = not (t0 + 400 <= t < t0 + 700)
+        log.record([host], {}, now=t)
+    # gap: FritzHub not running until t0+5000, device online all the time afterwards
+    for t in range(t0 + 5000, t0 + 6001, 10):
+        log.record([host], {}, now=t)
+    import time as _time
+    orig = _time.time
+    _time.time = lambda: t0 + 6000
+    try:
+        r = log.uptime("AA:BB:CC:00:00:01", t0, t0 + 6000)
+    finally:
+        _time.time = orig
+    assert r["known"] == [[t0, t0 + 1000], [t0 + 5000, t0 + 6000]]
+    # offline 400..700, the unknown gap is not counted as online or offline
+    assert r["online"] == [[t0, t0 + 400], [t0 + 700, t0 + 1000], [t0 + 5000, t0 + 6000]]
+
+
+def test_uptime_migration(tmp_path):
+    import json
+    path = tmp_path / "devices.json"
+    path.write_text(json.dumps({"devices": {"AA": {"active": True, "ev": [[100, "off"], [200, "on", "Box"]], "sig": []}}}))
+    log = DeviceLog(path)
+    assert log.devices["AA"]["pw"] == [[100, 0], [200, 1]]
+    assert log.devices["AA"]["first"] == 100
+    assert log.up and log.up[0][0] == 100

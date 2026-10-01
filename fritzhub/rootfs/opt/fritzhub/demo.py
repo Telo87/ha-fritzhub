@@ -599,6 +599,21 @@ def seed_demo_devices(hub) -> None:
     d["ev"].append([now - 5 * 3600, "roam", "FRITZ!Box", "Repeater OG", "5 GHz"])
     d["ev"].append([now - 4 * 3600, "roam", "Repeater OG", "FRITZ!Box", "5 GHz"])
     signal(d, 70, 10)
+    # 5 weeks of online/offline history for the online-time evaluation
+    log.up = [[now - 35 * 86400, now - 12 * 86400], [now - 12 * 86400 + 5 * 3600, now]]  # a gap: HA was off
+    day0 = (now // 86400) * 86400
+    for name, on_h, off_h, jitter in (("iPhone-Anna", 6.5, 23.5, 1.0), ("iPad-Kinder", 14, 20, 1.5),
+                                       ("MacBook-Pro", 8, 18, 1.0), ("Galaxy-Tab", 16, 22, 2.0)):
+        d = log.devices.setdefault(_mac(idx[name]), {"ev": [], "sig": []})
+        d["first"] = now - 35 * 86400
+        pw = []
+        for k in range(35, 0, -1):
+            if name == "MacBook-Pro" and time.localtime(day0 - k * 86400 + 43200).tm_wday >= 5:
+                continue  # weekend: laptop stays off
+            on = day0 - k * 86400 + int((on_h + rnd.uniform(-jitter, jitter)) * 3600)
+            off = day0 - k * 86400 + int((off_h + rnd.uniform(-jitter, jitter)) * 3600)
+            pw += [[on, 1], [off, 0]]
+        d["pw"] = [x for x in pw if x[0] < now]
     for name, ap, band in (("Galaxy-Tab", "FRITZ!Box", "5 GHz"), ("iPad-Kinder", "Repeater OG", "5 GHz"),
                            ("MacBook-Pro", "Repeater OG", "5 GHz"), ("Echo-Dot", "FRITZ!Box", "2,4 GHz"),
                            ("Brother-Drucker", "FRITZ!Box", "2,4 GHz")):

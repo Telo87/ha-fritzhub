@@ -296,6 +296,19 @@ async def device_history(request: web.Request) -> web.Response:
     return _ok(await asyncio.to_thread(hub.devlog.history, mac))
 
 
+@routes.get("/api/devices/{mac}/uptime")
+async def device_uptime(request: web.Request) -> web.Response:
+    """Online and recorded periods in [from, to] (unix seconds)."""
+    hub = _hub(request)
+    mac = request.match_info["mac"].upper()
+    try:
+        start = float(request.query["from"])
+        end = float(request.query["to"])
+    except (KeyError, ValueError) as err:
+        raise web.HTTPBadRequest(text="Zeitraum fehlt oder ist ungültig.") from err
+    return _ok(await asyncio.to_thread(hub.devlog.uptime, mac, start, end))
+
+
 @routes.post("/api/watch")
 async def device_watch(request: web.Request) -> web.Response:
     hub = _hub(request)

@@ -435,6 +435,24 @@ svg.spark.big { height: 90px; }
 .cell-main.clickable { cursor: pointer; }
 .cell-main.clickable:hover .t { color: var(--accent); }
 .icon-btn.watch-on { color: var(--accent); background: var(--accent-soft); }
+/* Online time */
+.modal.uptime-modal { max-width: 900px; }
+.up-chart { display: flex; gap: 8px; height: 170px; margin-top: 4px; }
+.up-axis { display: flex; flex-direction: column; justify-content: space-between; font-size: 10.5px; color: var(--text-3); padding-bottom: 18px; margin-top: -6px; text-align: right; min-width: 30px; }
+.up-bars { flex: 1; display: flex; gap: 3px; align-items: stretch; padding-bottom: 18px; min-width: 0; position: relative; }
+.up-bars::before { content: ""; position: absolute; left: 0; right: 0; top: 0; bottom: 18px; border-top: 1px solid var(--border); background: repeating-linear-gradient(to top, var(--border) 0 1px, transparent 1px 25%); pointer-events: none; }
+.up-bars.many { gap: 1px; }
+.ub { flex: 1; position: relative; min-width: 0; display: flex; z-index: 1; }
+.ub .col { flex: 1; display: flex; flex-direction: column; border-radius: 4px 4px 2px 2px; overflow: hidden; background: color-mix(in srgb, var(--surface-3) 70%, transparent); transform-origin: bottom; animation: growY .5s cubic-bezier(.2, .7, .2, 1) backwards; animation-delay: calc(min(var(--i, 0), 40) * 12ms); }
+.ub .col i { display: block; flex: none; }
+.ub .col i.on { background: var(--ok); margin-top: auto; }
+.ub .col i.unk, .legend .unk-sw { background: repeating-linear-gradient(45deg, var(--surface-3) 0 4px, var(--border) 4px 6px); }
+.ub.we .col i.on { filter: saturate(.8) brightness(.95); }
+.ub:hover .col { outline: 2px solid var(--accent-soft); }
+.ub .lbl { position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
+.legend .unk-sw { border: 1px solid var(--border); }
+@media (max-width: 700px) { .uptime-modal .vol-tiles { grid-template-columns: 1fr 1fr !important; } .ub .lbl { display: none; } }
+
 /* Network check */
 .nc-head { display: flex; align-items: center; gap: 16px; padding: 18px 20px; }
 .nc-item { margin-top: 16px; border-left: 4px solid var(--accent); }

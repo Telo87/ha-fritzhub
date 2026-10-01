@@ -114,6 +114,19 @@ es wieder erreichbar ist. Kürzere Aussetzer lösen keine Meldung aus. Die Meldu
 wie der Neue-Geräte-Alarm und lassen sich unter **Einstellungen › Benachrichtigungen** abschalten.
 Für Automationen gibt es die Ereignisse `fritzhub_device_offline` und `fritzhub_device_online`.
 
+## Online-Zeit auswerten
+
+In den Geräte-Details (Klick auf ein Gerät) öffnet **„Online-Zeit auswerten“** eine Auswertung für einen
+frei wählbaren Zeitraum (7 Tage, 30 Tage, dieser/letzter Monat oder beliebige Daten):
+Online-Zeit gesamt, Verfügbarkeit in Prozent, Durchschnitt pro Tag, Anzahl und Länge der Online-Phasen,
+ein Diagramm mit den **Online-Stunden je Tag** und eine Tabelle – auch als CSV-Export.
+
+- Online/Offline-Wechsel werden **400 Tage** gespeichert (`/data/devices.json`).
+- Zeiten, in denen FritzHub bzw. Home Assistant nicht lief, gelten als **nicht aufgezeichnet**
+  (schraffiert) und zählen weder als online noch als offline. Die Verfügbarkeit bezieht sich auf die
+  aufgezeichnete Zeit.
+- Die Aufzeichnung beginnt mit der ersten Erkennung des Geräts durch FritzHub.
+
 ## Netzwerk-Check
 
 Die Seite **Netzwerk-Check** fasst alle Messwerte zu Empfehlungen zusammen. Geräte-Auswertungen (schwaches
