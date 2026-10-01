@@ -18,8 +18,8 @@ body:
     id: version
     attributes:
       label: FritzHub-Version
-      description: Steht in FritzHub oben links unter dem Namen (z. B. v1.10.0).
-      placeholder: v1.10.0
+      description: Steht in FritzHub oben links unter dem Namen (z. B. v1.11.0).
+      placeholder: v1.11.0
     validations:
       required: true
   - type: textarea

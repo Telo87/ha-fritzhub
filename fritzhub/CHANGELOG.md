@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.11.0
+
+- Neu: **Online-Zeit auswerten** – in den Geräte-Details für einen frei wählbaren Zeitraum (7 Tage, 30 Tage, dieser/letzter Monat oder beliebige Daten): Online-Zeit gesamt, Verfügbarkeit, Ø pro Tag, Online-Phasen, Diagramm mit Online-Stunden je Tag, Tagestabelle und CSV-Export
+- Online/Offline-Wechsel werden 400 Tage gespeichert (bisher 14)
+- Zeiten, in denen FritzHub bzw. Home Assistant nicht lief, werden erkannt und zählen nicht als offline
+
 ## 1.10.0
 
 - Neu: **Direktzugriff** (optional) – FritzHub zusätzlich über einen eigenen Port (Standard 8765) mit Benutzername und Passwort erreichbar, z. B. als **Webseiten-Karte im Dashboard** ohne das Home-Assistant-Menü oder auf einem Wand-Tablet; „Angemeldet bleiben“ (1 Jahr, verlängert sich), funktioniert auch eingebettet, Sperre nach 5 Fehlversuchen, Passwortänderung meldet alle Geräte ab
