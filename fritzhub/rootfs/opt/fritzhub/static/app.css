@@ -395,7 +395,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .ch-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ch-track { position: relative; height: 22px; background: repeating-linear-gradient(90deg, var(--surface-3) 0 calc(100% / 13 - 1px), var(--surface) calc(100% / 13 - 1px) calc(100% / 13)); border-radius: 6px; }
 .ch-bar { position: absolute; top: 3px; bottom: 3px; border-radius: 5px; opacity: .85; }
-.ch-bar.ok { background: var(--ok); } .ch-bar.warn { background: var(--warn); } .ch-bar.err { background: var(--err); }
+.ch-bar.info { background: var(--text-3); } .ch-bar.ok { background: var(--ok); } .ch-bar.warn { background: var(--warn); } .ch-bar.err { background: var(--err); }
 .ch-mark { position: absolute; top: 0; bottom: 0; width: calc(100% / 13); transform: translateX(-50%); display: grid; place-items: center; font-size: 11.5px; color: #fff; }
 .ch-axis { display: grid; grid-template-columns: repeat(13, 1fr); font-size: 11px; color: var(--text-3); text-align: center; }
 fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
