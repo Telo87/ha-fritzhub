@@ -1494,15 +1494,23 @@
     five.forEach((a, i) => five.slice(i + 1).forEach((b) => {
       if (block5(a.ch) >= 0 && block5(a.ch) === block5(b.ch)) fiveShared.push(`${a.name} (${a.ch}) / ${b.name} (${b.ch})`);
     }));
-    // suggestion: busiest access points get their own non-overlapping channel
-    const load = { 1: 0, 6: 0, 11: 0 };
-    const suggestion = [...two].sort((a, b) => b.clients - a.clients).map((a) => {
+    // In a mesh only the master's channel can be set – mesh repeaters pick theirs
+    // automatically (their channel settings are locked). So the suggestion places
+    // the adjustable devices around the repeaters' current channels.
+    const mesh = two.some((a) => a.slave);
+    const fixed = two.filter((a) => a.slave);
+    // cost of channel c next to another access point: partial overlap is worse than sharing
+    const cost = (c, o, och) => { const d = Math.abs(c - och); return d === 0 ? o.clients + 1 : d < 5 ? 3 * (o.clients + 1) : 0; };
+    const placed = [];
+    const suggestion = two.filter((a) => !a.slave).sort((a, b) => b.clients - a.clients).map((a) => {
       const options = [1, 6, 11].filter((c) => !a.possible.length || a.possible.includes(c));
-      const best = options.sort((x, y) => (load[x] - load[y]) || ((x === a.ch ? 0 : 1) - (y === a.ch ? 0 : 1)))[0];
-      load[best] += a.clients + 1;
-      return { ...a, suggested: best };
-    });
-    return { two, five, issues, fiveShared, suggestion };
+      const total = (c) => fixed.reduce((n, o) => n + cost(c, o, o.ch), 0) + placed.reduce((n, o) => n + cost(c, o, o.suggested), 0);
+      const best = options.sort((x, y) => (total(x) - total(y)) || ((x === a.ch ? 0 : 1) - (y === a.ch ? 0 : 1)))[0] || a.ch;
+      const r = { ...a, suggested: best };
+      placed.push(r);
+      return r;
+    }).concat(fixed.map((a) => ({ ...a, suggested: null })));
+    return { two, five, issues, fiveShared, suggestion, mesh };
   }
 
   function channelCard(list) {
@@ -1519,16 +1527,20 @@
         <b class="ch-mark" style="left:${((a.ch - 0.5) / 13) * 100}%">${a.ch}</b></div></div>`;
     }).join('');
     const axis = `<div class="ch-row"><div class="ch-name"></div><div class="ch-axis">${Array.from({ length: 13 }, (_, i) => `<span>${i + 1}</span>`).join('')}</div></div>`;
-    const changes = r.suggestion.filter((a) => a.suggested !== a.ch);
+    const changes = r.suggestion.filter((a) => a.suggested !== null && a.suggested !== a.ch);
+    const lockedBad = r.suggestion.filter((a) => a.suggested === null && a.level === 'err');
     const allAuto = r.two.length && r.two.every((a) => a.auto);
     return `<div class="card"><div class="card-head"><div class="avatar accent">${ic('wifi')}</div><h2>Kanalprüfung<div class="faint" style="font-weight:400;font-size:12.5px">2,4 GHz – je Gerät der belegte Frequenzbereich, dahinter die Anzahl WLAN-Geräte</div></h2>${badge}</div>
       <div class="card-body">
         ${r.two.length ? `<div class="ch-strip">${strip}${axis}</div>` : ''}
         ${r.issues.length ? `<div class="list" style="margin-top:14px">${r.issues.map((i) => `<div class="notice ${i.level === 'err' ? 'err' : ''}" style="margin-bottom:8px">${ic('alert')}<div>${i.text}</div></div>`).join('')}</div>` : '<div class="notice info" style="margin-top:14px;background:var(--ok-soft)">' + ic('checkCircle') + '<div>Die 2,4-GHz-Netze deiner Geräte stören sich nicht gegenseitig.</div></div>'}
-        ${r.issues.length && changes.length ? `<div style="margin-top:14px"><b style="font-size:13.5px">Vorschlag</b> <span class="muted" style="font-size:12.5px">– die Geräte mit den meisten WLAN-Geräten bekommen eigene, überlappungsfreie Kanäle (1 / 6 / 11):</span>
+        ${r.issues.length && (changes.length || r.mesh) ? `<div style="margin-top:14px"><b style="font-size:13.5px">${r.mesh ? 'Was sich ändern lässt' : 'Vorschlag'}</b> <span class="muted" style="font-size:12.5px">${r.mesh
+          ? '– im Mesh lässt sich nur der Kanal des Mesh Masters festlegen; Mesh Repeater wählen ihren Kanal automatisch:'
+          : '– die Geräte mit den meisten WLAN-Geräten bekommen eigene, überlappungsfreie Kanäle (1 / 6 / 11):'}</span>
           <table class="table" style="margin-top:8px"><thead><tr><th style="cursor:default">Gerät</th><th style="cursor:default">Aktuell</th><th style="cursor:default">Vorschlag</th></tr></thead><tbody>
-          ${r.suggestion.map((a) => `<tr><td>${esc(a.name)}</td><td class="num">${a.ch}</td><td class="num">${a.suggested === a.ch ? `<span class="faint">${a.ch} (bleibt)</span>` : `<b>${a.suggested}</b>`}</td></tr>`).join('')}</tbody></table>
-          <p class="muted" style="font-size:12.5px;margin:10px 0 0">Ändern in der Oberfläche der jeweiligen Box unter <b>WLAN › Funkkanal</b>: „Funkkanal-Einstellungen anpassen“, 2,4-GHz-Kanal festlegen.${allAuto ? ' Aktuell wählen alle Boxen ihren Kanal per <b>Autokanal</b> selbst – die Box berücksichtigt dabei auch Nachbar-WLANs, die FritzHub nicht sieht. Ein fester Kanal lohnt sich vor allem, wenn es spürbare Probleme gibt.' : ''}</p></div>` : ''}
+          ${r.suggestion.map((a) => `<tr><td>${esc(a.name)}${a.slave ? ' <span class="badge wlan">Mesh Repeater</span>' : ''}</td><td class="num">${a.ch}</td><td class="num">${a.suggested === null ? '<span class="faint">automatisch (Mesh)</span>' : a.suggested === a.ch ? `<span class="faint">${a.ch} (bleibt)</span>` : `<b>${a.suggested}</b>`}</td></tr>`).join('')}</tbody></table>
+          ${lockedBad.length ? `<p class="muted" style="font-size:12.5px;margin:10px 0 0"><b>${lockedBad.map((a) => esc(a.name)).join(', ')}:</b> Der Kanal ist bei Mesh Repeatern gesperrt. Ein <a href="#/system">Neustart des Geräts</a> löst in der Regel eine neue automatische Kanalwahl aus – danach hier erneut prüfen. Bleibt es bei der Überlappung, hat das Gerät den Kanal wegen Störungen in seiner Umgebung (z. B. Nachbar-WLANs) bewusst gewählt.</p>` : ''}
+          <p class="muted" style="font-size:12.5px;margin:10px 0 0">${changes.length ? `Ändern in der Oberfläche ${r.mesh ? 'des Mesh Masters' : 'der jeweiligen Box'} unter <b>WLAN › Funkkanal</b>: „Funkkanal-Einstellungen anpassen“, 2,4-GHz-Kanal festlegen.${r.mesh ? ' Die Repeater können darauf mit einer neuen Kanalwahl reagieren – nach einigen Minuten erneut prüfen.' : ''}` : r.mesh ? 'Am Mesh Master ist keine Änderung nötig – sein Kanal passt bereits am besten zu den Kanälen der Repeater.' : ''}${allAuto ? ' Aktuell wählen alle Boxen ihren Kanal per <b>Autokanal</b> selbst – die Box berücksichtigt dabei auch Nachbar-WLANs, die FritzHub nicht sieht. Ein fester Kanal lohnt sich vor allem, wenn es spürbare Probleme gibt.' : ''}</p></div>` : ''}
         ${r.five.length ? `<p class="muted" style="font-size:12.5px;margin:14px 0 0"><b>5 GHz:</b> ${r.five.map((a) => `${esc(a.name)} ${a.ch}`).join(' · ')}.${r.fiveShared.length ? ' Einige Geräte teilen sich einen 80-MHz-Kanalblock – bei Repeatern mit WLAN-Anbindung ist das so gewollt, weil sie auf dem Kanal des Mesh Masters verbunden sind.' : ''}</p>` : ''}
       </div></div>`;
   }
